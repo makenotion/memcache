@@ -1,0 +1,1 @@
+{"version":3,"file":"null-logger.js","sourceRoot":"","sources":["../../src/lib/null-logger.ts"],"names":[],"mappings":";;AAAA,MAAM,OAAO,GAAG,GAAc,EAAE,CAAC,SAAS,CAAC;AAE3C,kBAAe;IACb,KAAK,EAAE,OAAO;IACd,IAAI,EAAE,OAAO;IACb,IAAI,EAAE,OAAO;IACb,KAAK,EAAE,OAAO;CACf,CAAC"}
