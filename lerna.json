@@ -1,0 +1,9 @@
+{
+  "version": "independent",
+  "command.publish.ignore": {
+    "ignore": ["*.md"]
+  },
+  "npmClient": "npm",
+  "useWorkspaces": false,
+  "packages": ["packages/*"]
+}

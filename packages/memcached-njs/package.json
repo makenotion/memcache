@@ -1,0 +1,46 @@
+{
+  "name": "memcached-njs",
+  "version": "1.0.1",
+  "description": "A functional memcached implemented in NodeJS for testing",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "coverage": "xrun xarc/test-cov",
+    "lint": "xrun xarc/lint",
+    "prepublishOnly": "(cd ../../ && npm run prepublishOnly)",
+    "test": "npm run lint && xrun xarc/test-only"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/electrode-io/memcache.git"
+  },
+  "keywords": [
+    "memcached",
+    "nodejs",
+    "server",
+    "ascii",
+    "protocol"
+  ],
+  "author": "Joel Chen <joel123@gmail.com>",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "memcache-parser": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/memcached": "2.2.7",
+    "@types/node": "^22.13.17",
+    "memcached": "2.2.2"
+  },
+  "@xarc/module-dev": {
+    "features": [
+      "eslint",
+      "eslintTS",
+      "jest",
+      "jestTS",
+      "prettier",
+      "typedoc",
+      "typescript"
+    ]
+  }
+}
