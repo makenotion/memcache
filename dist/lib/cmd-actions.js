@@ -1,0 +1,56 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+/* eslint-disable no-shadow */
+var ActionTypes;
+(function (ActionTypes) {
+    ActionTypes["ACTION_OK"] = "OK";
+    ActionTypes["ACTION_ERROR"] = "ERROR";
+    ActionTypes["ACTION_RESULT"] = "RESULT";
+    ActionTypes["ACTION_SINGLE_RESULT"] = "SINGLE_RESULT";
+    ActionTypes["ACTION_SELF"] = "SELF";
+})(ActionTypes || (ActionTypes = {}));
+const CmdActions = {
+    OK: ActionTypes.ACTION_OK,
+    END: ActionTypes.ACTION_SELF,
+    DELETED: ActionTypes.ACTION_OK,
+    TOUCHED: ActionTypes.ACTION_OK,
+    STORED: ActionTypes.ACTION_OK,
+    //
+    VALUE: ActionTypes.ACTION_SELF,
+    STAT: ActionTypes.ACTION_RESULT,
+    VERSION: ActionTypes.ACTION_SINGLE_RESULT,
+    //
+    NOT_STORED: ActionTypes.ACTION_ERROR,
+    EXISTS: ActionTypes.ACTION_ERROR,
+    NOT_FOUND: ActionTypes.ACTION_ERROR,
+    //
+    ERROR: ActionTypes.ACTION_ERROR,
+    CLIENT_ERROR: ActionTypes.ACTION_ERROR,
+    SERVER_ERROR: ActionTypes.ACTION_ERROR,
+    // Slabs Reassign error responses
+    // - "BUSY [message]" to indicate a page is already being processed, try again
+    //   later.
+    // - "BUSY [message]" to indicate the crawler is already processing a request.
+    BUSY: ActionTypes.ACTION_ERROR,
+    // - "BADCLASS [message]" a bad class id was specified
+    BADCLASS: ActionTypes.ACTION_ERROR,
+    // - "NOSPARE [message]" source class has no spare pages
+    NOSPARE: ActionTypes.ACTION_ERROR,
+    // - "NOTFULL [message]" dest class must be full to move new pages to it
+    NOTFULL: ActionTypes.ACTION_ERROR,
+    // - "UNSAFE [message]" source class cannot move a page right now
+    UNSAFE: ActionTypes.ACTION_ERROR,
+    // - "SAME [message]" must specify different source/dest ids.
+    SAME: ActionTypes.ACTION_ERROR,
+    // Meta Protocol commands uses two letter codes
+    HD: ActionTypes.ACTION_OK,
+    VA: ActionTypes.ACTION_SELF,
+    EN: ActionTypes.ACTION_SELF,
+    ME: ActionTypes.ACTION_SELF,
+    NS: ActionTypes.ACTION_ERROR,
+    EX: ActionTypes.ACTION_ERROR,
+    NF: ActionTypes.ACTION_ERROR,
+    MN: ActionTypes.ACTION_SELF,
+};
+exports.default = CmdActions;
+//# sourceMappingURL=cmd-actions.js.map

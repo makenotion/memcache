@@ -1,0 +1,62 @@
+/// <reference types="node" />
+import { Socket } from "net";
+import { MemcacheNode } from "./memcache-node";
+import { MemcacheParser, ParserPendingData } from "memcache-parser";
+import { MemcacheClient, MetaResult } from "./client";
+import { CommandContext, QueuedCommandContext } from "../types";
+export declare const Status: {
+    INIT: number;
+    CONNECTING: number;
+    READY: number;
+    SHUTDOWN: number;
+};
+declare type ConnectingPromise = Promise<unknown | void>;
+export declare type DangleWaitResponse = {
+    type: string;
+    socket?: Socket;
+    err?: Error;
+};
+export declare class MemcacheConnection extends MemcacheParser {
+    node: MemcacheNode | undefined;
+    client?: MemcacheClient;
+    socket: Socket | undefined;
+    _cmdQueue: Array<QueuedCommandContext>;
+    _id: number;
+    _cmdTimeout: number;
+    _connectPromise: ConnectingPromise | undefined | string;
+    _status: number;
+    _reset: boolean;
+    private _checkCmdTimer;
+    private _cmdCheckInterval;
+    constructor(client: MemcacheClient, node?: MemcacheNode);
+    waitDangleSocket(socket?: Socket): void;
+    connect(server: string): Promise<MemcacheConnection>;
+    isReady(): boolean;
+    isConnecting(): boolean;
+    isShutdown(): boolean;
+    getStatusStr(): string;
+    waitReady(): ConnectingPromise;
+    queueCommand(context: CommandContext): void;
+    dequeueCommand(): QueuedCommandContext | undefined;
+    peekCommand(): QueuedCommandContext;
+    processCmd(cmdTokens: string[]): number;
+    _processMetaItem(token: string, metadata: MetaResult): void;
+    _processMetaResult(pending: ParserPendingData): MetaResult;
+    receiveResult(pending: ParserPendingData): void;
+    shutdown(): void;
+    cmdAction_OK(cmdTokens: string[]): void;
+    cmdAction_ERROR(cmdTokens: string[]): void;
+    cmdAction_RESULT(cmdTokens?: string[]): void;
+    cmdAction_SINGLE_RESULT(cmdTokens: string[]): void;
+    cmdAction_SELF(cmdTokens: string[]): number | void;
+    cmdAction_undefined(cmdTokens: string[]): boolean;
+    cmd_VALUE(cmdTokens: string[]): void;
+    cmd_VA(cmdTokens: string[]): void;
+    cmd_EN(_cmdTokens: string[]): void;
+    cmd_END(_cmdTokens: string[]): void;
+    _shutdown(msg: string, keepSocket?: boolean): void;
+    _checkCmdTimeout(): void;
+    _startCmdTimeout(): void;
+    _setupConnection(socket: Socket): void;
+}
+export {};
