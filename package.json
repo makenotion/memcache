@@ -1,0 +1,43 @@
+{
+  "name": "memcache-parser",
+  "version": "1.0.2",
+  "description": "A very efficient NodeJS memcached ASCII Protocol parser by using only Buffer APIs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "coverage": "xrun xarc/test-cov",
+    "lint": "xrun xarc/lint",
+    "prepublishOnly": "(cd ../../ && npm run prepublishOnly)",
+    "test": "npm run lint && xrun xarc/test-only"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/electrode-io/memcache.git"
+  },
+  "keywords": [
+    "memcache",
+    "memcached",
+    "nodejs",
+    "client",
+    "ascii",
+    "protocol",
+    "parser"
+  ],
+  "author": "Joel Chen <joel123@gmail.com>",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=4"
+  },
+  "@xarc/module-dev": {
+    "features": [
+      "eslint",
+      "eslintTS",
+      "jest",
+      "jestTS",
+      "prettier",
+      "typedoc",
+      "typescript"
+    ]
+  }
+}
