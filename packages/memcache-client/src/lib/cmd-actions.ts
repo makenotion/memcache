@@ -40,6 +40,15 @@ const CmdActions: Record<string, string> = {
   UNSAFE: ActionTypes.ACTION_ERROR,
   // - "SAME [message]" must specify different source/dest ids.
   SAME: ActionTypes.ACTION_ERROR,
+  // Meta Protocol commands uses two letter codes
+  HD: ActionTypes.ACTION_OK,
+  VA: ActionTypes.ACTION_SELF,
+  EN: ActionTypes.ACTION_SELF,
+  ME: ActionTypes.ACTION_SELF,
+  NS: ActionTypes.ACTION_ERROR,
+  EX: ActionTypes.ACTION_ERROR,
+  NF: ActionTypes.ACTION_ERROR,
+  MN: ActionTypes.ACTION_SELF,
 };
 
 export default CmdActions;
