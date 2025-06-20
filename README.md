@@ -8,6 +8,41 @@ Forked from https://github.com/electrode-io/memcache for Notion by [Scott Sandle
 
 Our fork is primarily to add support for the meta protocol and a hashring implementation, as well as to enable migration from MemJS.
 
+## Private publishing:
+
+The fact that this repo uses lerna makes it harder to install the packages. We need both memcache-client and memcache-parser in our repo. Here's how I did this:
+
+```
+npm run build
+sudo npm i -g gitpkg
+cd packages/memcache-parser
+gitpkg publish
+cd ../memcache-client
+gitpkg publish
+```
+
+This uses gitpkg which generates tags in this repo for each of the packages with just the built artifacts.
+
+Then, in notion-next to install I did:
+
+```
+npm i --save git://github.com/makenotion/memcache.git#memcache-parser-v1.0.1-gitpkg git://github.com/makenotion/memcache.git#memcache-client-v1.0.5-gitpkg
+```
+
+## Local development
+
+You can use `npm link` to test changes to the packages in this repo.
+
+```
+cd packages/memcache-client
+npm link
+
+cd <path to your notion-next checkout>
+npm link memcache-client
+```
+
+You'll have to explicitly `npm run build` in the memcache working copy each time you make changes, since npm link symlinks to the `dist/` directory containing build artifacts.
+
 ## Features
 
 - Very efficient memcached ASCII protocol parser by using only [NodeJS Buffer APIs](https://nodejs.org/api/buffer.html).
