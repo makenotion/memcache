@@ -35,7 +35,7 @@ export type ErrorFirstCallback = (error?: Error | null, data?: any) => void;
 export type PackedData = {
   flag: number;
   data: string | Buffer;
-  cmdTokens: number[];
+  cmdTokens: string[];
   cmd?: string;
 };
 
@@ -64,6 +64,7 @@ export type MemcacheClientOptions = {
 export type CommandContext = {
   error?: Error | null;
   results: Record<string, unknown>;
+  expectedResponses?: number;
   callback: ErrorFirstCallback;
 };
 

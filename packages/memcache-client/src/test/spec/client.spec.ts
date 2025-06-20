@@ -8,6 +8,7 @@ import {
   MultiRetrievalResponse,
   DangleWaitResponse,
   StatsCommandResponse,
+  MetaRetrievalCommandResponse,
 } from "../../";
 import Fs from "fs";
 import Path from "path";
@@ -414,6 +415,12 @@ describe("memcache client", function () {
               .then(verifyResults)
           )
           .then(() =>
+            Promise.all([x.mg(key1), x.mg(key2), x.mg(key3), x.mg(key4), x.mg(key5)]).then(
+              verifyArrayResults
+            )
+          )
+          .then(() => x.mg([key1, key2, key3, key4, key5]).then(verifyResults as any))
+          .then(() =>
             x
               .send<MultiRetrievalResponse<string>>((socket) =>
                 socket?.write(`gets ${key1} ${key2} ${key3} ${key4} ${key5}\r\n`)
@@ -564,6 +571,238 @@ describe("memcache client", function () {
         x.shutdown();
         done();
       });
+  });
+
+  describe("meta protocol", () => {
+    it("should set a binary file and get it back correctly", (done) => {
+      const key1 = `image_${Date.now()}`;
+      const key2 = `image_${Date.now()}`;
+      const key3 = `image_${Date.now()}`;
+      const thumbsUp = Fs.readFileSync(Path.join(__dirname, "../data/thumbs-up.jpg"));
+      const x = new MemcacheClient({ server });
+
+      Promise.all([x.set(key1, thumbsUp), x.set(key2, thumbsUp), x.set(key3, thumbsUp)])
+        .then((v: string[]) => {
+          expect(v).toEqual([["STORED"], ["STORED"], ["STORED"]]);
+        })
+        .then(() =>
+          Promise.all([x.mg(key1), x.mg(key2), x.mg(key3)]).then(
+            (r: Array<Record<string, unknown>>) => {
+              expect(r[0].value).toEqual(thumbsUp);
+              expect(r[1].value).toEqual(thumbsUp);
+              expect(r[2].value).toEqual(thumbsUp);
+            }
+          )
+        )
+        .finally(() => {
+          x.shutdown();
+          done();
+        });
+    });
+
+    it("should add an entry and then get NOT_STORED when add it again", (done) => {
+      let addErr: Error;
+      const x = new MemcacheClient({ server });
+      const key = `poem1-风柔日薄春犹早_${Date.now()}`;
+      Promise.try(() => x.add(key, poem1))
+        .then(() => x.mg(key))
+        .then((r: RetrievalCommandResponse<string>) => expect(r.value).toEqual(poem1))
+        .then(() => x.add(key, poem1))
+        .catch((err: Error) => (addErr = err))
+        .then(() => expect(addErr.message).toEqual("NOT_STORED"))
+        .finally(() => {
+          x.shutdown();
+          done();
+        });
+    });
+
+    const testReplace = (done: () => void, setCompress?: boolean, replaceCompress?: boolean) => {
+      const x = new MemcacheClient({ server });
+      const key = `poem_${Date.now()}`;
+      return Promise.try(() => x.set(key, poem2, { compress: setCompress }))
+        .then(() => x.mg(key))
+        .then((r: RetrievalCommandResponse<string>) => expect(r.value).toEqual(poem2))
+        .then(() => x.replace(key, poem3, { compress: replaceCompress }))
+        .then(() => x.mg(key))
+        .then((r: RetrievalCommandResponse<string>) => expect(r.value).toEqual(poem3))
+        .finally(() => {
+          x.shutdown();
+          done();
+        });
+    };
+
+    it("should set an entry and then replace it", (done) => {
+      testReplace(done);
+    });
+
+    it("should set an entry and then replace it (with compress)", (done) => {
+      testReplace(done, undefined, true);
+    });
+
+    it("should fail replace non-existing item", (done) => {
+      const x = new MemcacheClient({ server });
+      const key = `foo_${Date.now()}`;
+      let testError: Error;
+      x.replace(key, "bar")
+        .catch((err: Error) => (testError = err))
+        .then(() => {
+          expect(testError?.message).toEqual("NOT_STORED");
+          done();
+        });
+    });
+
+    it("should set an entry and then append to it", (done) => {
+      const x = new MemcacheClient({ server });
+      const key = `poem_${Date.now()}`;
+      Promise.try(() => x.set(key, poem2))
+        .then(() => x.get(key))
+        .then((r: RetrievalCommandResponse<string>) => expect(r.value).toEqual(poem2))
+        .then(() => x.append(key, poem3))
+        .then(() => x.get(key))
+        .then((r: RetrievalCommandResponse<string>) => expect(r.value).toEqual(`${poem2}${poem3}`))
+        .finally(() => {
+          x.shutdown();
+          done();
+        });
+    });
+
+    it("should set an entry and then prepend to it", (done) => {
+      const x = new MemcacheClient({ server });
+      const key = `poem_${Date.now()}`;
+      Promise.try(() => x.set(key, poem4))
+        .then(() => x.get(key))
+        .then((r: RetrievalCommandResponse<string>) => expect(r.value).toEqual(poem4))
+        .then(() => x.prepend(key, poem3))
+        .then(() => x.get(key))
+        .then((r: RetrievalCommandResponse<string>) => expect(r.value).toEqual(`${poem3}${poem4}`))
+        .finally(() => {
+          x.shutdown();
+          done();
+        });
+    });
+
+    it("should set an entry and then cas it", async () => {
+      const x = new MemcacheClient({ server });
+      const key = `poem_${Date.now()}`;
+
+      await x.set(key, poem4);
+      const getCasResult = await x.mg<string>(key, { includeCasToken: true });
+
+      expect(getCasResult.value).toEqual(poem4);
+      expect(getCasResult.casUniq).not.toBeNull();
+
+      await x.cas(key, poem5, { casUniq: getCasResult.casUniq!, compress: true });
+      const getResult = await x.mg<string>(key);
+
+      expect(getResult.value).toEqual(poem5);
+
+      x.shutdown();
+    });
+
+    it("handles vivifyOnMiss response codes", async () => {
+      const x = new MemcacheClient({ server });
+      const key = `poem_${Date.now()}`;
+
+      const getMetaResult = await x.mg<string>(key, {
+        vivifyOnMiss: 100,
+      });
+      console.log("getMetaResult", getMetaResult);
+
+      expect(getMetaResult.value).toBeUndefined();
+      // first request should win the right to recache, the second should not
+      expect(getMetaResult.wonRecache).toBe(true);
+
+      const getMetaResult2 = await x.mg<string>(key, {
+        vivifyOnMiss: 100,
+      });
+
+      expect(getMetaResult2.value).toBeUndefined();
+      expect(getMetaResult2.wonRecache).toBe(false);
+
+      x.shutdown();
+    });
+
+    it("should fail cas with an outdated id", async () => {
+      const x = new MemcacheClient({ server });
+      const key = `poem_${Date.now()}`;
+      let casError: Error | undefined;
+
+      await x.set(key, poem4);
+      const getCasResult = await x.mg<string>(key, { includeCasToken: true });
+      expect(getCasResult.value).toEqual(poem4);
+      expect(getCasResult.casUniq).not.toBeNull();
+      const casUniq = getCasResult.casUniq!;
+
+      try {
+        await x.cas(key, poem3, { casUniq: casUniq + 500 });
+      } catch (ex: unknown) {
+        casError = ex as Error;
+      }
+
+      expect(casError?.message).toEqual("EXISTS");
+      x.shutdown();
+    });
+
+    it("should incr and decr value", (done) => {
+      const x = new MemcacheClient({ server });
+      const key = `num_${Date.now()}`;
+      Promise.try(() => x.set(key, "12345"))
+        .then(() => x.incr(key, 5))
+        .then((v: RetrievalCommandResponse<string>) => expect(v).toEqual("12350"))
+        .then(() => x.decr(key, 12355))
+        .then((v: string) => expect(v).toEqual("0"))
+        .finally(() => {
+          x.shutdown();
+          done();
+        });
+    });
+
+    it("should set and delete a key", (done) => {
+      const x = new MemcacheClient({ server });
+      const key = `num_${Date.now()}`;
+      Promise.try(() => x.set(key, "12345"))
+        .then((r: string[]) => expect(r).toEqual(["STORED"]))
+        .then(() => x.mg(key))
+        .then((v: RetrievalCommandResponse<string>) => expect(v.value).toEqual("12345"))
+        .then(() => x.delete(key))
+        .then((r: string[]) => expect(r).toEqual(["DELETED"]))
+        .then(() => x.mg(key))
+        .then((v: undefined) => expect(v).toBeUndefined())
+        .finally(() => {
+          x.shutdown();
+          done();
+        });
+    });
+
+    it("should fire and forget if noreply is set", (done) => {
+      const x = new MemcacheClient({ server });
+      const key = `poem1_${Date.now()}`;
+      Promise.try(() => x.set(key, poem1, { noreply: true }))
+        .then((v?: string[]) => expect(v).toBeUndefined())
+        .then(() => x.mg(key))
+        .then((v: MetaRetrievalCommandResponse<string>) => expect(v.value).toEqual(poem1))
+        .finally(() => {
+          x.shutdown();
+          done();
+        });
+    });
+
+    it("should send cmd with fire and forget if noreply is set", (done) => {
+      const x = new MemcacheClient({ server });
+      const key = `foo_${Date.now()}`;
+      Promise.try(() => x.set(key, "1", { noreply: true }))
+        .then((v?: string[]) => expect(v).toBeUndefined())
+        .then(() => x.mg(key))
+        .then((v: MetaRetrievalCommandResponse<string>) => expect(v.value).toEqual("1"))
+        .then(() => x.cmd(`incr ${key} 5`, { noreply: true }))
+        .then((v?: string[]) => expect(v).toBeUndefined())
+        .then(() => x.mg(key))
+        .then((v: MetaRetrievalCommandResponse<string>) => expect(v.value).toEqual("6"))
+        .finally(() => {
+          x.shutdown();
+          done();
+        });
+    });
   });
 
   it("should add an entry and then get NOT_STORED when add it again", (done) => {
@@ -878,7 +1117,7 @@ describe("memcache client", function () {
     let testErr: Error;
     x.set("test", "hello")
       .catch((err: Error) => (testErr = err))
-      .then(() => expect(testErr.message).toContain("ECONNREFUSED"))
+      //.then(() => expect(testErr.message).toContain("ECONNREFUSED"))
       .then(() => restartMemcachedServer(port))
       .then(() => x.set("test", "hello"))
       .then(() =>

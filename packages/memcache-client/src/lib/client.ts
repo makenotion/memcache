@@ -28,7 +28,7 @@ import { DefaultLogger } from "memcache-parser";
 
 type StoreParams = string | number | Buffer | Record<string, unknown>;
 
-type CommonCommandOption = Readonly<{ noreply?: boolean }>;
+type CommonCommandOption = Readonly<{ noreply?: boolean; expectedResponses?: number }>;
 
 type StoreCommandOptions = CommonCommandOption & { ignoreNotStored?: boolean } & Readonly<{
     lifetime?: number;
@@ -38,6 +38,66 @@ type StoreCommandOptions = CommonCommandOption & { ignoreNotStored?: boolean } &
 type CasCommandOptions = CommonCommandOption &
   StoreCommandOptions &
   Readonly<{ casUniq: number | string }>;
+
+type MetaGetOptions = StoreCommandOptions & {
+  /** interpret key as base64 encoded binary value */
+  keyAsBase64?: boolean;
+  /** include the cas token in the response */
+  includeCasToken?: boolean;
+  /** return whether item has been hit before as a 0 or 1 */
+  includeHasBeenHit?: boolean;
+  /** return time since item was last accessed in seconds */
+  includeLastAccessed?: boolean;
+  /** return item TTL remaining in seconds (-1 for unlimited) */
+  includeRemainingTtl?: boolean;
+  /** don't bump the item in the LRU */
+  dontBumpLru?: boolean;
+  /** vivify on miss, takes TTL as a argument
+   * Used to help with so called "dog piling" problems with recaching of popular
+   * items. If supplied, and metaget does not find the item in cache, it will
+   * create a stub item with the key and TTL as supplied. If such an item is
+   * created a 'W' flag is added to the response to indicate to a client that they
+   * have "won" the right to recache an item.
+   *
+   * The automatically created item has 0 bytes of data.
+   *
+   * Further requests will see a 'Z' flag to indicate that another client has
+   * already received the win flag.
+   */
+  vivifyOnMiss?: number;
+  /** Similar to "touch" and "gat" commands, updates the remaining TTL of an item if hit. */
+  updateTtlOnHit?: number;
+};
+
+/**
+ * Results specific to meta protocol
+ */
+export type MetaResult = {
+  /** return whether item has been hit before the current request */
+  hasBeenHit?: boolean;
+  /** return time since item was last accessed in seconds */
+  secondsSinceLastAccess?: number;
+  /** opaque value - passing in this will return the same value, can be used to identify pipelined requests */
+  opaqueValue?: string;
+  /** remaining TTL in seconds (-1 for unlimited) */
+  remainingTtl?: number;
+  /**
+   * if vivifyOnMiss was passed and we miss, indicates whether the current request won the right to recache the item
+   * if we win, caller should do the underlying IO and store the result
+   * if we lose, caller should wait for another client to do the IO and try again with a backoff/retry loop
+   * NOTE: even if vivifyOnMiss was not passed on this request, if someone else passed it and won the right to recache,
+   * this will be set to false explicitly with an undefined value in the response
+   */
+  wonRecache?: boolean;
+  /** staleness can be set via meta delete as a way to keep the value there but encourage callers to refresh it */
+  stale?: boolean;
+  /** return flags */
+  flags?: number;
+  /** return key */
+  key?: string;
+  /** cas token returned if includeCasToken was passed */
+  casUniq?: string;
+};
 
 type SocketCallback = (socket?: Socket) => void;
 
@@ -50,6 +110,10 @@ export type RetrievalCommandResponse<ValueType> = {
   value: ValueType;
 };
 
+export type MetaRetrievalCommandResponse<ValueType> = MetaResult & {
+  value: ValueType;
+};
+
 export type CasRetrievalCommandResponse<Type> = RetrievalCommandResponse<Type> & {
   casUniq: string | number;
 };
@@ -58,6 +122,11 @@ export type StatsCommandResponse = Record<"STAT", Array<Array<string>>>;
 export type MultiRetrievalResponse<ValueType = unknown> = Record<
   string,
   RetrievalCommandResponse<ValueType>
+>;
+
+export type MultiMetaRetrievalResponse<ValueType = unknown> = Record<
+  string,
+  MetaRetrievalCommandResponse<ValueType>
 >;
 
 export type MultiCasRetrievalResponse<ValueType = unknown> = Record<
@@ -72,6 +141,10 @@ type MultiCasRetrieval<ValueType> = ValueType extends MultiCasRetrievalResponse
 type MultiRetrieval<ValueType> = ValueType extends MultiRetrievalResponse
   ? ValueType
   : RetrievalCommandResponse<ValueType>;
+
+type MultiMetaRetrieval<ValueType> = ValueType extends MultiMetaRetrievalResponse
+  ? ValueType
+  : MetaRetrievalCommandResponse<ValueType>;
 
 export class MemcacheClient extends EventEmitter {
   options: MemcacheClientOptions;
@@ -320,11 +393,13 @@ export class MemcacheClient extends EventEmitter {
         (options as Partial<CasCommandOptions>)?.compress === true
       );
       const bytes = Buffer.byteLength(packed.data);
-      socket?.write(Buffer.concat([
-        Buffer.from(`${cmd} ${key} ${packed.flag} ${lifetime} ${bytes}${casUniq}${noreply}\r\n`),
-        Buffer.isBuffer(packed.data) ? packed.data : Buffer.from(packed.data),
-        Buffer.from("\r\n"),
-      ]));
+      socket?.write(
+        Buffer.concat([
+          Buffer.from(`${cmd} ${key} ${packed.flag} ${lifetime} ${bytes}${casUniq}${noreply}\r\n`),
+          Buffer.isBuffer(packed.data) ? packed.data : Buffer.from(packed.data),
+          Buffer.from("\r\n"),
+        ])
+      );
     };
 
     return this._callbackSend(_data, options, callback) as unknown as Promise<string[]>;
@@ -336,6 +411,41 @@ export class MemcacheClient extends EventEmitter {
     callback?: OperationCallback<Error, MultiRetrieval<ValueType>>
   ): Promise<MultiRetrieval<ValueType>> {
     return this.retrieve("get", key, options, callback);
+  }
+
+  mg<ValueType>(
+    key: string | string[],
+    options?: MetaGetOptions,
+    callback?: OperationCallback<Error, MultiMetaRetrieval<ValueType>>
+  ): Promise<MultiMetaRetrieval<ValueType>> {
+    // always request value and flags
+    // key is only requested when there is an array to identify the responses by key
+    let metaFlags = Array.isArray(key) ? "v k f" : "v f";
+    if (options?.keyAsBase64) {
+      metaFlags += " b";
+    }
+    if (options?.includeCasToken) {
+      metaFlags += " c";
+    }
+    if (options?.includeHasBeenHit) {
+      metaFlags += " h";
+    }
+    if (options?.includeLastAccessed) {
+      metaFlags += " l";
+    }
+    if (options?.includeRemainingTtl) {
+      metaFlags += " t";
+    }
+    if (options?.dontBumpLru) {
+      metaFlags += " n";
+    }
+    if (options?.vivifyOnMiss) {
+      metaFlags += ` N${options.vivifyOnMiss}`;
+    }
+    if (options?.noreply) {
+      metaFlags += " q";
+    }
+    return this.retrieve("mg", key, options, callback, metaFlags);
   }
 
   gets<ValueType>(
@@ -351,25 +461,45 @@ export class MemcacheClient extends EventEmitter {
     cmd: string,
     key: string[] | string,
     options?: StoreCommandOptions | OperationCallback<Error, T>,
-    callback?: ErrorFirstCallback
+    callback?: ErrorFirstCallback,
+    metaFlags?: string
   ): Promise<T> {
     if (typeof options === "function") {
       callback = options;
       options = {};
     }
-    return nodeify(this.xretrieve(cmd, key, options), callback) as unknown as Promise<T>;
+    return nodeify(this.xretrieve(cmd, key, options, metaFlags), callback) as unknown as Promise<T>;
   }
 
   // the promise only version of retrieve
-  xretrieve(cmd: string, key: string | string[], options?: StoreCommandOptions): Promise<unknown> {
+  xretrieve(
+    cmd: string,
+    key: string | string[],
+    options?: StoreCommandOptions,
+    metaFlags?: string
+  ): Promise<unknown> {
     //
     // get <key>*\r\n
     // gets <key>*\r\n
+    // mg <key> <flags>\r\n
     //
     // - <key>* means one or more key strings separated by whitespace.
     //
+    if (metaFlags) {
+      // sending multiple keys works differently for meta protocol
+      // e.g. "mg foo v\r\nmg bar v\r\nmg baz v\r\n" instead of "mg foo bar baz v\r\n"
+      return Array.isArray(key)
+        ? this.xsend(key.map((k) => `${cmd} ${k} ${metaFlags}\r\n`).join(""), {
+            ...options,
+            expectedResponses: key.length,
+          })
+        : this.xsend(`${cmd} ${key} ${metaFlags}\r\n`, options).then((r: unknown) =>
+            Object.values(r as Record<string, unknown>).shift()
+          );
+    }
     return Array.isArray(key)
-      ? this.xsend(`${cmd} ${key.join(" ")}\r\n`, options)
+      ? // NOTE: can't do this for meta commands, instead do "mg foo v\r\nmg bar v\r\nmg baz v\r\n"
+        this.xsend(`${cmd} ${key.join(" ")}\r\n`, options)
       : this.xsend(`${cmd} ${key}\r\n`, options).then(
           (r: unknown) => (r as Record<string, unknown>)[key]
         );
@@ -401,6 +531,7 @@ export class MemcacheClient extends EventEmitter {
         const context = {
           error: null,
           results: {},
+          expectedResponses: options.expectedResponses || 1,
           callback: (err: Error, result: unknown) => {
             if (err) {
               if (options.ignoreNotStored === true && err.message === "NOT_STORED") {
@@ -438,7 +569,52 @@ export class MemcacheClient extends EventEmitter {
     //
     // VALUE <key> <flags> <bytes> [<cas unique>]\r\n
     //
-    result.flag = +result.cmdTokens[2];
+    // If flag is already set (from meta command parsing), use it; otherwise, use cmdTokens[2] (classic get)
+    if (typeof result.flag !== "number" || isNaN(result.flag)) {
+      result.flag = +result.cmdTokens[2];
+    }
     return this._packer.unpack(result);
+  }
+
+  // eslint-disable-next-line complexity
+  _parseMeta(cmdTokens: string[]): MetaResult {
+    // example input:
+    // ["VA", "<flag><value>*", "<flag2><value2>*"]
+    const metadata: MetaResult = {};
+    for (const token of cmdTokens) {
+      switch (token[0]) {
+        case "f":
+          metadata.flags = +token.slice(1);
+          break;
+        case "k":
+          metadata.key = token.slice(1);
+          break;
+        case "h":
+          metadata.hasBeenHit = token[1] === "1";
+          break;
+        case "l":
+          metadata.secondsSinceLastAccess = +token.slice(1);
+          break;
+        case "O":
+          metadata.opaqueValue = token.slice(1);
+          break;
+        case "c":
+          metadata.casUniq = token.slice(1);
+          break;
+        case "t":
+          metadata.remainingTtl = +token.slice(1);
+          break;
+        case "W":
+          metadata.wonRecache = true;
+          break;
+        case "Z":
+          metadata.wonRecache = false;
+          break;
+        case "X":
+          metadata.stale = true;
+          break;
+      }
+    }
+    return metadata;
   }
 }

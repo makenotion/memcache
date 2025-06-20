@@ -8,7 +8,7 @@ const Promise = optionalRequire("bluebird", {
 });
 import { MemcacheNode } from "./memcache-node";
 import { MemcacheParser, ParserPendingData } from "memcache-parser";
-import { MemcacheClient } from "./client";
+import { MemcacheClient, MetaResult } from "./client";
 import cmdActions from "./cmd-actions";
 import defaults from "./defaults";
 import {
@@ -108,10 +108,10 @@ export class MemcacheConnection extends MemcacheParser {
     if (this.client?.options?.tls !== undefined) {
       // Create a TLS connection
       socket = Tls.connect({
-          host: host,
-          port: port,
-          ...this.client.options.tls
-        });
+        host: host,
+        port: port,
+        ...this.client.options.tls,
+      });
     } else {
       // Create a regular TCP connection
       socket = Net.createConnection({ host, port });
@@ -222,17 +222,88 @@ export class MemcacheConnection extends MemcacheParser {
     return (this as any)[`cmdAction_${action}` as keyof MemcacheConnection](cmdTokens);
   }
 
+  _processMetaItem(token: string, metadata: MetaResult): void {
+    switch (token[0]) {
+      case "f":
+        metadata.flags = +token.slice(1);
+        break;
+      case "k":
+        metadata.key = token.slice(1);
+        break;
+      case "h":
+        metadata.hasBeenHit = token[1] === "1";
+        break;
+      case "l":
+        metadata.secondsSinceLastAccess = +token.slice(1);
+        break;
+      case "O":
+        metadata.opaqueValue = token.slice(1);
+        break;
+      case "c":
+        metadata.casUniq = token.slice(1);
+        break;
+      case "t":
+        metadata.remainingTtl = +token.slice(1);
+        break;
+      case "W":
+        metadata.wonRecache = true;
+        break;
+      case "Z":
+        metadata.wonRecache = false;
+        break;
+      case "X":
+        metadata.stale = true;
+        break;
+    }
+  }
+
+  _processMetaResult(pending: ParserPendingData): MetaResult {
+    const metadata: MetaResult = {};
+    for (const token of pending.cmdTokens) {
+      this._processMetaItem(token, metadata);
+    }
+    return metadata;
+  }
+
   receiveResult(pending: ParserPendingData): void {
     if (this.isReady()) {
       const retrieve = this.peekCommand();
-      try {
-        retrieve.results[pending.cmdTokens[1]] = {
-          tokens: pending.cmdTokens,
-          casUniq: pending.cmdTokens[4],
-          value: this.client?._unpackValue(pending as unknown as PackedData),
+      if (pending.cmdTokens[0] === "VA" || pending.cmdTokens[0] === "HD") {
+        // search for key in response, which is only set for multi requests. use the pending key otherwise
+        const key =
+          (retrieve.expectedResponses || 1) === 1
+            ? pending.key
+            : pending.cmdTokens.find((token) => token.startsWith("k"))?.slice(1) || pending.key;
+        // handle meta command responses
+        const metadata = this.client?._parseMeta(pending.cmdTokens);
+        const dataSize = +pending.cmdTokens[1];
+        retrieve.results[key] = {
+          type: pending.cmdTokens[0],
+          flags: metadata?.flags,
+          value:
+            dataSize > 0
+              ? this.client?._unpackValue({
+                  ...pending,
+                  flag: metadata?.flags,
+                } as unknown as PackedData)
+              : undefined,
+          ...metadata,
         };
-      } catch (err) {
-        retrieve.error = err as Error;
+        // for pipelined multi mg, there is no "EN" to tell us when all responses are received
+        // instead, we track completion based on the expected number of responses and dequeue when reached
+        if (Object.keys(retrieve.results).length >= (retrieve.expectedResponses || 1)) {
+          this.dequeueCommand()?.callback();
+        }
+      } else {
+        try {
+          retrieve.results[pending.cmdTokens[1]] = {
+            tokens: pending.cmdTokens,
+            casUniq: pending.cmdTokens[4],
+            value: this.client?._unpackValue(pending as unknown as PackedData),
+          };
+        } catch (err) {
+          retrieve.error = err as Error;
+        }
       }
     }
     delete pending.data;
@@ -294,8 +365,17 @@ export class MemcacheConnection extends MemcacheParser {
     this.initiatePending(cmdTokens, +cmdTokens[3]);
   }
 
+  cmd_VA(cmdTokens: string[]): void {
+    this.initiatePending(cmdTokens, +cmdTokens[1]);
+  }
+
   // eslint-disable-next-line
-  cmd_END(cmdTokens: string[]): void {
+  cmd_EN(_cmdTokens: string[]): void {
+    this.dequeueCommand()?.callback();
+  }
+
+  // eslint-disable-next-line
+  cmd_END(_cmdTokens: string[]): void {
     this.dequeueCommand()?.callback();
   }
 
@@ -345,9 +425,8 @@ export class MemcacheConnection extends MemcacheParser {
     const keepAlive = this.client?.options?.keepAlive;
 
     if (keepAlive !== false) {
-      const initialDelay = typeof keepAlive === "number" && Number.isFinite(keepAlive)
-        ? keepAlive
-        : 60000;
+      const initialDelay =
+        typeof keepAlive === "number" && Number.isFinite(keepAlive) ? keepAlive : 60000;
 
       socket.setKeepAlive(true, initialDelay);
     }
