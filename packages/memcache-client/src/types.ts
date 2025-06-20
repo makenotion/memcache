@@ -53,6 +53,11 @@ export type MemcacheClientOptions = {
   logger?: any;
   Promise?: PromiseConstructor;
   tls?: ConnectionOptions;
+  /** if metadata flags are not set, assume values are all of type Buffer rather than plain text
+   * this is for migration from other libraries that do not use the flags that this library uses
+   * to denote the type of values stored in memcached
+   */
+  assumeBuffer?: boolean;
 };
 
 // connection

@@ -86,7 +86,10 @@ export class MemcacheClient extends EventEmitter {
     assert(options.server, "Must provide options.server");
     this.options = options;
     this.socketID = 1;
-    this._packer = new ValuePacker(options.compressor || (Zstd as CompressorLibrary));
+    this._packer = new ValuePacker(
+      options.compressor || (Zstd as CompressorLibrary),
+      options.assumeBuffer || false
+    );
     this._logger = options.logger !== undefined ? options.logger : nullLogger;
     this.options.cmdTimeout = options.cmdTimeout || defaults.CMD_TIMEOUT_MS;
     this._servers = new RedundantServers(this, options.server as unknown as SingleServerEntry);

@@ -8,9 +8,11 @@ type PackedData = { flag: number; data: string | Buffer };
 type DecompressedData = string | number | Record<string, unknown> | Buffer;
 export default class ValuePacker {
   compressor: CompressorLibrary;
+  assumeBuffer: boolean;
 
-  constructor(compressor: CompressorLibrary) {
+  constructor(compressor: CompressorLibrary, assumeBuffer: boolean) {
     this.compressor = compressor;
+    this.assumeBuffer = assumeBuffer;
   }
 
   pack(value: string | number | Record<string, unknown> | Buffer, compress: boolean): PackedData {
@@ -41,9 +43,10 @@ export default class ValuePacker {
   }
 
   unpack(packed: PackedData): DecompressedData {
-    const flag = packed.flag;
+    // retrieve data from cache and decode based on the type set via flags
+    // if flags are not set, optionally assume binary type for migration from other libraries that don't use these flags
+    const flag = packed.flag || (this.assumeBuffer ? ValueFlags.TYPE_BINARY : 0);
     const compress = (flag & ValueFlags.COMPRESS) === ValueFlags.COMPRESS;
-
     var data: string | number | Buffer = packed.data;
 
     if (compress) {
