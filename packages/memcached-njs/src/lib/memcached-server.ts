@@ -3,6 +3,7 @@ import net, { Server, AddressInfo, Socket } from "net";
 import tls, { TlsOptions } from "tls";
 import { DefaultLogger, PendingData } from "../types";
 import MemcacheConnection from "./memcache-connection";
+import { ParserPendingData } from "memcache-parser";
 
 // https://github.com/memcached/memcached/blob/master/doc/protocol.txt
 /* eslint-disable @typescript-eslint/no-unused-vars,no-shadow */
@@ -17,6 +18,14 @@ enum Replies {
   TOUCHED = "TOUCHED",
   OK = "OK",
   CLIENT_ERROR = "CLIENT_ERROR",
+  HD = "HD",
+  VA = "VA",
+  EN = "EN",
+  ME = "ME",
+  NS = "NS",
+  EX = "EX",
+  NF = "NF",
+  MN = "MN",
 }
 
 const logger: DefaultLogger = {
@@ -31,6 +40,51 @@ export type MemcacheServerOptions = {
   logger?: any;
   compress?: boolean | undefined;
   tls?: TlsOptions;
+};
+
+type MetaSetFlags = {
+  isBase64: boolean;
+  returnCas: boolean;
+  casValue?: number;
+  newCasValue?: number;
+  clientFlags?: number;
+  invalidate: boolean;
+  returnKey: boolean;
+  opaqueValue?: string;
+  noreply: boolean;
+  returnSize: boolean;
+  ttl?: number;
+  mode: "E" | "A" | "P" | "R" | "S";
+  vivifyTtl?: number;
+};
+
+type MetaDeleteFlags = {
+  isBase64: boolean;
+  casValue?: number;
+  newCasValue?: number;
+  invalidate: boolean;
+  returnKey: boolean;
+  opaqueValue?: string;
+  noreply: boolean;
+  ttl?: number;
+  removeValueOnly: boolean;
+};
+
+type MetaArithmeticFlags = {
+  isBase64: boolean;
+  casValue?: number;
+  newCasValue?: number;
+  vivifyTtl?: number;
+  initialValue?: number;
+  delta: number;
+  ttl?: number;
+  mode: "I" | "+" | "D" | "-";
+  opaqueValue?: string;
+  noreply: boolean;
+  returnTtl: boolean;
+  returnCas: boolean;
+  returnValue: boolean;
+  returnKey: boolean;
 };
 
 export class MemcachedServer {
@@ -372,6 +426,441 @@ export class MemcachedServer {
 
   cmd_gets(cmdTokens: string[], connection: MemcacheConnection): void {
     return this.cmd_get(cmdTokens, connection);
+  }
+
+  private _handleVivifyOnMiss(options: {
+    key: string;
+    ttl: number;
+    flags: string;
+    connection: MemcacheConnection;
+  }): void {
+    const e = {
+      flag: "vivifyOnMiss",
+      data: Buffer.from(""),
+      lifetime: options.ttl,
+      casId: this.getNextCasID(),
+    };
+    this._cache.set(options.key, e);
+    const responseFlags = ["W"];
+    if (options.flags.includes("v")) {
+      options.connection.send(`${Replies.VA} 0 ${responseFlags.join(" ")}\r\n\r\n`);
+    } else {
+      options.connection.send(`${Replies.HD} ${responseFlags.join(" ")}\r\n`);
+    }
+  }
+
+  private _processResponseFlags(e: any, key: string, flags: string): string[] {
+    const responseFlags: string[] = [];
+
+    if (flags.includes("c")) responseFlags.push(`c${e.casId}`);
+    if (flags.includes("f")) responseFlags.push(`f${e.flag}`);
+    if (flags.includes("h")) responseFlags.push("h0"); // we pretend item has never been hit
+    if (flags.includes("k")) responseFlags.push(`k${key}`);
+    if (flags.includes("l")) responseFlags.push("l0"); // we pretend item has never been hit
+    if (flags.includes("s")) responseFlags.push(`s${e.data.length}`);
+    if (flags.includes("t")) responseFlags.push(`t${e.lifetime}`);
+
+    const opaqueMatch = flags.match(/O\(([^)]+)\)/);
+    if (opaqueMatch) {
+      responseFlags.push(`O${opaqueMatch[1]}`);
+    }
+
+    return responseFlags;
+  }
+
+  private _handleTTLUpdate(e: any, flags: string): void {
+    const ttlMatch = flags.match(/T\((\d+)\)/);
+    if (ttlMatch) {
+      e.lifetime = parseInt(ttlMatch[1], 10);
+    }
+  }
+
+  private _handleRecache(e: any, flags: string, responseFlags: string[]): void {
+    const recacheMatch = flags.match(/R\((\d+)\)/);
+    if (recacheMatch) {
+      const threshold = parseInt(recacheMatch[1], 10);
+      if (e.lifetime < threshold) {
+        responseFlags.push("W");
+      }
+    }
+  }
+
+  cmd_mg(cmdTokens: string[], connection: MemcacheConnection): void {
+    const key = cmdTokens[1];
+    const flags = cmdTokens.slice(2).join(" ").trim();
+    if (!this._cache.has(key)) {
+      const vivifyMatch = flags.match(/N(\d+)/);
+      if (vivifyMatch) {
+        this._handleVivifyOnMiss({
+          key,
+          ttl: parseInt(vivifyMatch[1], 10),
+          flags,
+          connection,
+        });
+        return;
+      }
+      if (!flags.includes("q")) {
+        connection.send(`${Replies.EN}\r\n`);
+      }
+      return;
+    }
+
+    const e = this._cache.get(key);
+    if (e.flag === "vivifyOnMiss") {
+      // placeholder indicating someone else won the right to recache
+      const responseFlags = ["Z"];
+      if (flags.includes("v")) {
+        connection.send(`${Replies.VA} 0 ${responseFlags.join(" ")}\r\n\r\n`);
+      } else {
+        connection.send(`${Replies.HD} ${responseFlags.join(" ")}\r\n`);
+      }
+      return;
+    }
+
+    const responseFlags = this._processResponseFlags(e, key, flags);
+    this._handleTTLUpdate(e, flags);
+    this._handleRecache(e, flags, responseFlags);
+
+    if (flags.includes("v")) {
+      connection.send(`${Replies.VA} ${e.data.length} ${responseFlags.join(" ")}\r\n`);
+      connection.send(e.data);
+      connection.send("\r\n");
+    } else {
+      connection.send(`${Replies.HD} ${responseFlags.join(" ")}\r\n`);
+    }
+
+    if (!flags.includes("u")) {
+      // In a real implementation, this would update the LRU position
+      // For now, we just note that it would happen
+    }
+  }
+
+  cmd_me(cmdTokens: string[], connection: MemcacheConnection): void {
+    let key = cmdTokens[1];
+    const isBase64 = cmdTokens[2] === "b";
+
+    // Handle base64 encoded key if specified
+    if (isBase64) {
+      try {
+        key = Buffer.from(key, "base64").toString();
+      } catch (err) {
+        connection.send(`${Replies.CLIENT_ERROR} invalid base64 key\r\n`);
+        return;
+      }
+    }
+
+    if (!this._cache.has(key)) {
+      connection.send(`${Replies.EN}\r\n`);
+      return;
+    }
+
+    const e = this._cache.get(key);
+    const metadata = [
+      `exp=${e.lifetime}`,
+      "la=0", // Last access time (not implemented in this version)
+      `cas=${e.casId}`,
+      "fetch=1", // Assuming item has been fetched
+      "cls=1", // Default slab class
+      `size=${e.data.length}`,
+    ];
+
+    // If key was base64 encoded, encode it back for response
+    const responseKey = isBase64 ? Buffer.from(key).toString("base64") : key;
+    connection.send(`${Replies.ME} ${responseKey} ${metadata.join(" ")}\r\n`);
+  }
+
+  private _parseMetaSetFlags(flags: string): MetaSetFlags {
+    const result: MetaSetFlags = {
+      isBase64: flags.includes("b"),
+      returnCas: flags.includes("c"),
+      casValue: undefined,
+      newCasValue: undefined,
+      clientFlags: undefined,
+      invalidate: flags.includes("I"),
+      returnKey: flags.includes("k"),
+      opaqueValue: undefined,
+      noreply: flags.includes("q"),
+      returnSize: flags.includes("s"),
+      ttl: undefined,
+      mode: "S",
+      vivifyTtl: undefined,
+    };
+
+    // Parse CAS value
+    const casMatch = flags.match(/C(\d+)/);
+    if (casMatch) {
+      result.casValue = parseInt(casMatch[1], 10);
+    }
+
+    // Parse new CAS value
+    const newCasMatch = flags.match(/E(\d+)/);
+    if (newCasMatch) {
+      result.newCasValue = parseInt(newCasMatch[1], 10);
+    }
+
+    // Parse client flags
+    const flagsMatch = flags.match(/F(\d+)/);
+    if (flagsMatch) {
+      result.clientFlags = parseInt(flagsMatch[1], 10);
+    }
+
+    // Parse opaque value
+    const opaqueMatch = flags.match(/O([^)]+)/);
+    if (opaqueMatch) {
+      result.opaqueValue = opaqueMatch[1];
+    }
+
+    // Parse TTL
+    const ttlMatch = flags.match(/T(\d+)/);
+    if (ttlMatch) {
+      result.ttl = parseInt(ttlMatch[1], 10);
+    }
+
+    // Parse mode
+    const modeMatch = flags.match(/M([EAPRS])/);
+    if (modeMatch) {
+      result.mode = modeMatch[1] as "E" | "A" | "P" | "R" | "S";
+    }
+
+    // Parse vivify TTL
+    const vivifyMatch = flags.match(/N(\d+)/);
+    if (vivifyMatch) {
+      result.vivifyTtl = parseInt(vivifyMatch[1], 10);
+    }
+
+    return result;
+  }
+
+  private _handleCasCheck(options: {
+    exists: boolean;
+    e: any;
+    flags: MetaSetFlags;
+    connection: MemcacheConnection;
+  }): { shouldContinue: boolean; responseFlags: string[] } {
+    const responseFlags: string[] = [];
+    if (options.flags.casValue !== undefined) {
+      if (!options.exists) {
+        if (!options.flags.noreply) {
+          options.connection.send(`${Replies.NF}\r\n`);
+        }
+        return { shouldContinue: false, responseFlags };
+      }
+      if (options.e.casId !== options.flags.casValue) {
+        if (options.flags.invalidate && options.e.casId > options.flags.casValue) {
+          // Mark as stale but continue
+          responseFlags.push("X");
+        } else {
+          if (!options.flags.noreply) {
+            options.connection.send(`${Replies.EX}\r\n`);
+          }
+          return { shouldContinue: false, responseFlags };
+        }
+      }
+    }
+    return { shouldContinue: true, responseFlags };
+  }
+
+  private _handleAppendPrepend(options: {
+    key: string;
+    data: Buffer;
+    exists: boolean;
+    e: any;
+    flags: MetaSetFlags;
+    connection: MemcacheConnection;
+  }): { shouldContinue: boolean; responseFlags: string[] } {
+    const responseFlags: string[] = [];
+    if (!options.exists) {
+      if (options.flags.vivifyTtl !== undefined) {
+        // Create new item with vivify TTL
+        this._cache.set(options.key, {
+          flag: options.flags.clientFlags?.toString() || "0",
+          data: options.data,
+          lifetime: options.flags.vivifyTtl,
+          casId: options.flags.newCasValue || this.getNextCasID(),
+        });
+        responseFlags.push("W");
+      } else {
+        if (!options.flags.noreply) {
+          options.connection.send(`${Replies.NF}\r\n`);
+        }
+        return { shouldContinue: false, responseFlags };
+      }
+    } else {
+      options.e.data = Buffer.concat([options.data, options.e.data]);
+      options.e.casId = options.flags.newCasValue || this.getNextCasID();
+    }
+    return { shouldContinue: true, responseFlags };
+  }
+
+  private _handleModeSpecificLogic(options: {
+    key: string;
+    data: Buffer;
+    exists: boolean;
+    e: any;
+    flags: MetaSetFlags;
+    connection: MemcacheConnection;
+  }): { shouldContinue: boolean; responseFlags: string[] } {
+    const responseFlags: string[] = [];
+
+    switch (options.flags.mode) {
+      case "E": // add
+        if (options.exists) {
+          if (!options.flags.noreply) {
+            options.connection.send(`${Replies.NS}\r\n`);
+          }
+          return { shouldContinue: false, responseFlags };
+        }
+        break;
+      case "R": // replace
+        if (!options.exists) {
+          if (!options.flags.noreply) {
+            options.connection.send(`${Replies.NF}\r\n`);
+          }
+          return { shouldContinue: false, responseFlags };
+        }
+        break;
+      case "A": // append
+        return this._handleAppendPrepend(options);
+      case "P": // prepend
+        return this._handleAppendPrepend({
+          ...options,
+          data: options.data,
+        });
+      case "S": // set
+        // Always proceed
+        break;
+    }
+
+    return { shouldContinue: true, responseFlags };
+  }
+
+  private _updateCacheItem(options: {
+    key: string;
+    data: Buffer;
+    exists: boolean;
+    flags: MetaSetFlags;
+  }): void {
+    if (!options.exists || options.flags.mode === "S" || options.flags.mode === "E") {
+      this._cache.set(options.key, {
+        flag: options.flags.clientFlags?.toString() || "0",
+        data: options.data,
+        lifetime: options.flags.ttl || 0,
+        casId: options.flags.newCasValue || this.getNextCasID(),
+      });
+    }
+  }
+
+  private _buildResponseFlags(options: {
+    key: string;
+    data: Buffer;
+    flags: MetaSetFlags;
+  }): string[] {
+    const responseFlags: string[] = [];
+
+    if (options.flags.returnCas) {
+      responseFlags.push(`c${options.flags.newCasValue || this.getNextCasID()}`);
+    }
+    if (options.flags.returnKey) {
+      responseFlags.push(`k${options.key}`);
+    }
+    if (options.flags.opaqueValue) {
+      responseFlags.push(`O${options.flags.opaqueValue}`);
+    }
+    if (options.flags.returnSize) {
+      responseFlags.push(`s${options.data.length}`);
+    }
+
+    return responseFlags;
+  }
+
+  private _handleMetaSetMode(options: {
+    key: string;
+    data: Buffer;
+    flags: MetaSetFlags;
+    connection: MemcacheConnection;
+  }): void {
+    const exists = this._cache.has(options.key);
+    const e = exists ? this._cache.get(options.key) : null;
+
+    // Handle CAS check
+    const casResult = this._handleCasCheck({
+      exists,
+      e,
+      flags: options.flags,
+      connection: options.connection,
+    });
+    if (!casResult.shouldContinue) {
+      return;
+    }
+
+    // Handle mode-specific logic
+    const modeResult = this._handleModeSpecificLogic({
+      key: options.key,
+      data: options.data,
+      exists,
+      e,
+      flags: options.flags,
+      connection: options.connection,
+    });
+    if (!modeResult.shouldContinue) {
+      return;
+    }
+
+    const responseFlags = [...casResult.responseFlags, ...modeResult.responseFlags];
+
+    // Update or create item
+    this._updateCacheItem({
+      key: options.key,
+      data: options.data,
+      exists,
+      flags: options.flags,
+    });
+
+    // Add response flags
+    responseFlags.push(
+      ...this._buildResponseFlags({
+        key: options.key,
+        data: options.data,
+        flags: options.flags,
+      })
+    );
+
+    // Send response
+    if (!options.flags.noreply) {
+      options.connection.send(`${Replies.HD} ${responseFlags.join(" ")}\r\n`);
+    }
+  }
+
+  cmd_ms(cmdTokens: string[], connection: MemcacheConnection): void {
+    let key = cmdTokens[1];
+    const dataLen = parseInt(cmdTokens[2], 10);
+    const flags = this._parseMetaSetFlags(cmdTokens.slice(3).join(" ").trim());
+
+    // Handle base64 encoded key if specified
+    if (flags.isBase64) {
+      try {
+        key = Buffer.from(key, "base64").toString();
+      } catch (err) {
+        connection.send(`${Replies.CLIENT_ERROR} invalid base64 key\r\n`);
+        return;
+      }
+    }
+
+    // Wait for data block
+    connection.initiatePending(cmdTokens, dataLen);
+    connection.receiveResult = (pending: ParserPendingData) => {
+      if (pending.data?.length !== dataLen) {
+        connection.send(`${Replies.CLIENT_ERROR} invalid data length\r\n`);
+        return;
+      }
+
+      this._handleMetaSetMode({
+        key,
+        data: pending.data,
+        flags,
+        connection,
+      });
+    };
   }
 
   // Deletion
@@ -851,5 +1340,431 @@ export class MemcachedServer {
     this._clients.clear();
     this._server?.close();
     this.logger.info("server shutdown");
+  }
+
+  private _parseMetaDeleteFlags(flags: string): MetaDeleteFlags {
+    const result: MetaDeleteFlags = {
+      isBase64: flags.includes("b"),
+      casValue: undefined,
+      newCasValue: undefined,
+      invalidate: flags.includes("I"),
+      returnKey: flags.includes("k"),
+      opaqueValue: undefined,
+      noreply: flags.includes("q"),
+      ttl: undefined,
+      removeValueOnly: flags.includes("x"),
+    };
+
+    // Parse CAS value
+    const casMatch = flags.match(/C\((\d+)\)/);
+    if (casMatch) {
+      result.casValue = parseInt(casMatch[1], 10);
+    }
+
+    // Parse new CAS value
+    const newCasMatch = flags.match(/E\((\d+)\)/);
+    if (newCasMatch) {
+      result.newCasValue = parseInt(newCasMatch[1], 10);
+    }
+
+    // Parse opaque value
+    const opaqueMatch = flags.match(/O\(([^)]+)\)/);
+    if (opaqueMatch) {
+      result.opaqueValue = opaqueMatch[1];
+    }
+
+    // Parse TTL
+    const ttlMatch = flags.match(/T\((\d+)\)/);
+    if (ttlMatch) {
+      result.ttl = parseInt(ttlMatch[1], 10);
+    }
+
+    return result;
+  }
+
+  private _handleMetaDeleteCasCheck(options: {
+    exists: boolean;
+    e: any;
+    flags: MetaDeleteFlags;
+    connection: MemcacheConnection;
+  }): boolean {
+    if (options.flags.casValue !== undefined) {
+      if (!options.exists) {
+        if (!options.flags.noreply) {
+          options.connection.send(`${Replies.NF}\r\n`);
+        }
+        return false;
+      }
+      if (options.e.casId !== options.flags.casValue) {
+        if (!options.flags.noreply) {
+          options.connection.send(`${Replies.EX}\r\n`);
+        }
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private _handleMetaDeleteItem(options: {
+    key: string;
+    e: any;
+    flags: MetaDeleteFlags;
+  }): string[] {
+    const responseFlags: string[] = [];
+
+    if (options.flags.invalidate) {
+      // Mark as stale and update CAS
+      options.e.casId = options.flags.newCasValue || this.getNextCasID();
+      responseFlags.push("X");
+
+      // Update TTL if specified
+      if (options.flags.ttl !== undefined) {
+        options.e.lifetime = options.flags.ttl;
+      }
+    } else if (options.flags.removeValueOnly) {
+      // Remove value but keep item
+      options.e.data = Buffer.from("");
+      options.e.casId = options.flags.newCasValue || this.getNextCasID();
+    } else {
+      // Full deletion
+      this._cache.delete(options.key);
+    }
+
+    return responseFlags;
+  }
+
+  private _buildMetaDeleteResponseFlags(options: {
+    key: string;
+    flags: MetaDeleteFlags;
+  }): string[] {
+    const responseFlags: string[] = [];
+
+    if (options.flags.returnKey) {
+      responseFlags.push(`k${options.key}`);
+    }
+    if (options.flags.opaqueValue) {
+      responseFlags.push(`O${options.flags.opaqueValue}`);
+    }
+
+    return responseFlags;
+  }
+
+  private _handleMetaDelete(options: {
+    key: string;
+    flags: MetaDeleteFlags;
+    connection: MemcacheConnection;
+  }): void {
+    const exists = this._cache.has(options.key);
+    const e = exists ? this._cache.get(options.key) : null;
+
+    // Handle CAS check
+    if (
+      !this._handleMetaDeleteCasCheck({
+        exists,
+        e,
+        flags: options.flags,
+        connection: options.connection,
+      })
+    ) {
+      return;
+    }
+
+    if (!exists) {
+      if (!options.flags.noreply) {
+        options.connection.send(`${Replies.NF}\r\n`);
+      }
+      return;
+    }
+
+    // Handle item deletion/invalidation
+    const itemFlags = this._handleMetaDeleteItem({
+      key: options.key,
+      e,
+      flags: options.flags,
+    });
+
+    // Add response flags
+    const responseFlags = [
+      ...itemFlags,
+      ...this._buildMetaDeleteResponseFlags({
+        key: options.key,
+        flags: options.flags,
+      }),
+    ];
+
+    // Send response
+    if (!options.flags.noreply) {
+      options.connection.send(`${Replies.HD} ${responseFlags.join(" ")}\r\n`);
+    }
+  }
+
+  cmd_md(cmdTokens: string[], connection: MemcacheConnection): void {
+    let key = cmdTokens[1];
+    const flags = this._parseMetaDeleteFlags(cmdTokens.slice(2).join(" ").trim());
+
+    // Handle base64 encoded key if specified
+    if (flags.isBase64) {
+      try {
+        key = Buffer.from(key, "base64").toString();
+      } catch (err) {
+        connection.send(`${Replies.CLIENT_ERROR} invalid base64 key\r\n`);
+        return;
+      }
+    }
+
+    this._handleMetaDelete({
+      key,
+      flags,
+      connection,
+    });
+  }
+
+  private _parseMetaArithmeticFlags(flags: string): MetaArithmeticFlags {
+    const result: MetaArithmeticFlags = {
+      isBase64: flags.includes("b"),
+      casValue: undefined,
+      newCasValue: undefined,
+      vivifyTtl: undefined,
+      initialValue: undefined,
+      delta: 1,
+      ttl: undefined,
+      mode: "I",
+      opaqueValue: undefined,
+      noreply: flags.includes("q"),
+      returnTtl: flags.includes("t"),
+      returnCas: flags.includes("c"),
+      returnValue: flags.includes("v"),
+      returnKey: flags.includes("k"),
+    };
+
+    // Parse CAS value
+    const casMatch = flags.match(/C\((\d+)\)/);
+    if (casMatch) {
+      result.casValue = parseInt(casMatch[1], 10);
+    }
+
+    // Parse new CAS value
+    const newCasMatch = flags.match(/E\((\d+)\)/);
+    if (newCasMatch) {
+      result.newCasValue = parseInt(newCasMatch[1], 10);
+    }
+
+    // Parse vivify TTL
+    const vivifyMatch = flags.match(/N\((\d+)\)/);
+    if (vivifyMatch) {
+      result.vivifyTtl = parseInt(vivifyMatch[1], 10);
+    }
+
+    // Parse initial value
+    const initialMatch = flags.match(/J\((\d+)\)/);
+    if (initialMatch) {
+      result.initialValue = parseInt(initialMatch[1], 10);
+    }
+
+    // Parse delta
+    const deltaMatch = flags.match(/D\((\d+)\)/);
+    if (deltaMatch) {
+      result.delta = parseInt(deltaMatch[1], 10);
+    }
+
+    // Parse TTL
+    const ttlMatch = flags.match(/T\((\d+)\)/);
+    if (ttlMatch) {
+      result.ttl = parseInt(ttlMatch[1], 10);
+    }
+
+    // Parse mode
+    const modeMatch = flags.match(/M\(([ID+-])\)/);
+    if (modeMatch) {
+      result.mode = modeMatch[1] as "I" | "+" | "D" | "-";
+    }
+
+    // Parse opaque value
+    const opaqueMatch = flags.match(/O\(([^)]+)\)/);
+    if (opaqueMatch) {
+      result.opaqueValue = opaqueMatch[1];
+    }
+
+    return result;
+  }
+
+  private _handleMetaArithmeticCasCheck(options: {
+    exists: boolean;
+    e: any;
+    flags: MetaArithmeticFlags;
+    connection: MemcacheConnection;
+  }): boolean {
+    if (options.flags.casValue !== undefined) {
+      if (!options.exists) {
+        if (!options.flags.noreply) {
+          options.connection.send(`${Replies.NF}\r\n`);
+        }
+        return false;
+      }
+      if (options.e.casId !== options.flags.casValue) {
+        if (!options.flags.noreply) {
+          options.connection.send(`${Replies.EX}\r\n`);
+        }
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private _handleMetaArithmeticValue(options: {
+    key: string;
+    e: any;
+    flags: MetaArithmeticFlags;
+  }): { success: boolean; newValue: number; responseFlags: string[] } {
+    const responseFlags: string[] = [];
+    let newValue: number;
+
+    if (!options.e) {
+      if (options.flags.vivifyTtl !== undefined) {
+        // Create new item with initial value
+        newValue = options.flags.initialValue || 0;
+        this._cache.set(options.key, {
+          flag: "0",
+          data: Buffer.from(newValue.toString()),
+          lifetime: options.flags.vivifyTtl,
+          casId: options.flags.newCasValue || this.getNextCasID(),
+        });
+        responseFlags.push("W");
+      } else {
+        return { success: false, newValue: 0, responseFlags };
+      }
+    } else {
+      // Parse current value
+      const currentValue = parseInt(options.e.data.toString(), 10);
+      if (isNaN(currentValue)) {
+        return { success: false, newValue: 0, responseFlags };
+      }
+
+      // Apply delta based on mode
+      const sign = options.flags.mode === "D" || options.flags.mode === "-" ? -1 : 1;
+      newValue = currentValue + options.flags.delta * sign;
+      if (newValue < 0) {
+        newValue = 0;
+      }
+
+      // Update item
+      options.e.data = Buffer.from(newValue.toString());
+      options.e.casId = options.flags.newCasValue || this.getNextCasID();
+
+      // Update TTL if specified
+      if (options.flags.ttl !== undefined) {
+        options.e.lifetime = options.flags.ttl;
+      }
+    }
+
+    return { success: true, newValue, responseFlags };
+  }
+
+  private _buildMetaArithmeticResponseFlags(options: {
+    key: string;
+    e: any;
+    flags: MetaArithmeticFlags;
+    newValue: number;
+  }): string[] {
+    const responseFlags: string[] = [];
+
+    if (options.flags.returnCas) {
+      responseFlags.push(`c${options.e.casId}`);
+    }
+    if (options.flags.returnKey) {
+      responseFlags.push(`k${options.key}`);
+    }
+    if (options.flags.opaqueValue) {
+      responseFlags.push(`O${options.flags.opaqueValue}`);
+    }
+    if (options.flags.returnTtl) {
+      responseFlags.push(`t${options.e.lifetime}`);
+    }
+
+    return responseFlags;
+  }
+
+  private _handleMetaArithmetic(options: {
+    key: string;
+    flags: MetaArithmeticFlags;
+    connection: MemcacheConnection;
+  }): void {
+    const exists = this._cache.has(options.key);
+    const e = exists ? this._cache.get(options.key) : null;
+
+    // Handle CAS check
+    if (
+      !this._handleMetaArithmeticCasCheck({
+        exists,
+        e,
+        flags: options.flags,
+        connection: options.connection,
+      })
+    ) {
+      return;
+    }
+
+    // Handle value arithmetic
+    const result = this._handleMetaArithmeticValue({
+      key: options.key,
+      e,
+      flags: options.flags,
+    });
+
+    if (!result.success) {
+      if (!options.flags.noreply) {
+        options.connection.send(`${Replies.NS}\r\n`);
+      }
+      return;
+    }
+
+    // Add response flags
+    const responseFlags = [
+      ...result.responseFlags,
+      ...this._buildMetaArithmeticResponseFlags({
+        key: options.key,
+        e: this._cache.get(options.key),
+        flags: options.flags,
+        newValue: result.newValue,
+      }),
+    ];
+
+    // Send response
+    if (!options.flags.noreply) {
+      if (options.flags.returnValue) {
+        options.connection.send(
+          `${Replies.VA} ${result.newValue.toString().length} ${responseFlags.join(" ")}\r\n`
+        );
+        options.connection.send(result.newValue.toString());
+        options.connection.send("\r\n");
+      } else {
+        options.connection.send(`${Replies.HD} ${responseFlags.join(" ")}\r\n`);
+      }
+    }
+  }
+
+  cmd_ma(cmdTokens: string[], connection: MemcacheConnection): void {
+    let key = cmdTokens[1];
+    const flags = this._parseMetaArithmeticFlags(cmdTokens.slice(2).join(" ").trim());
+
+    // Handle base64 encoded key if specified
+    if (flags.isBase64) {
+      try {
+        key = Buffer.from(key, "base64").toString();
+      } catch (err) {
+        connection.send(`${Replies.CLIENT_ERROR} invalid base64 key\r\n`);
+        return;
+      }
+    }
+
+    this._handleMetaArithmetic({
+      key,
+      flags,
+      connection,
+    });
+  }
+
+  cmd_mn(cmdTokens: string[], connection: MemcacheConnection): void {
+    connection.send(`${Replies.MN}\r\n`);
   }
 }
