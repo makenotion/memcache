@@ -20,16 +20,24 @@ import _defaults from "lodash.defaults";
 
 type RedundantServerEntry = SingleServerEntry & { exiledTime?: number };
 
-export default class RedundantServers implements MultiServerManager {
+export default class ConsistentlyHashedServers implements MultiServerManager {
   client: MemcacheClient;
   _servers: Array<RedundantServerEntry>;
   _exServers: Array<RedundantServerEntry>;
+  _serversByServerKey: Record<string, RedundantServerEntry>;
+  _serverKeys: Array<string>;
   _nodes: Record<string, MemcacheNode>;
   _config: Record<string, string | boolean | number>;
   _lastRetryTime: number = 0;
+  _keyToServerHashFunction: (servers: string[], key: string) => string;
 
-  constructor(client: MemcacheClient, server: SingleServerEntry) {
+  constructor(
+    client: MemcacheClient,
+    server: SingleServerEntry,
+    keyToServerHashFunction: (servers: string[], key: string) => string
+  ) {
     this.client = client;
+    this._keyToServerHashFunction = keyToServerHashFunction;
     let servers;
     let maxConnections = defaults.MAX_CONNECTIONS;
     if (typeof server === "object") {
@@ -45,6 +53,12 @@ export default class RedundantServers implements MultiServerManager {
       servers = [{ server, maxConnections }];
     }
     this._servers = servers;
+    this._serversByServerKey = {};
+    this._serverKeys = [];
+    for (const s of servers) {
+      this._serversByServerKey[s.server] = s;
+      this._serverKeys.push(s.server);
+    }
     this._exServers = []; // servers that failed connection
     this._nodes = {};
     this._config = _defaults({}, (server as unknown as ServerDefinition).config, {
@@ -61,7 +75,7 @@ export default class RedundantServers implements MultiServerManager {
     }
   }
 
-  doCmd(action: CommandCallback, _key: string): void | Promise<unknown> {
+  doCmd(action: CommandCallback, key: string): void | Promise<unknown> {
     if (this._exServers.length > 0) {
       this._retryServers();
     }
@@ -69,9 +83,9 @@ export default class RedundantServers implements MultiServerManager {
       throw new Error("No more valid servers left");
     }
     if (this._servers.length === 1 && this._config.keepLastServer === true) {
-      return this._getNode().doCmd(action);
+      return this._getNode(key).doCmd(action);
     }
-    const node = this._getNode();
+    const node = this._getNode(key);
     return (node.doCmd(action) as Promise<void>).catch((err: ConnectionError) => {
       if (!err.connecting) {
         throw err;
@@ -88,7 +102,7 @@ export default class RedundantServers implements MultiServerManager {
         }
       }
       this._servers = _servers;
-      return this.doCmd(action, _key);
+      return this.doCmd(action, key);
     });
   }
 
@@ -113,9 +127,12 @@ export default class RedundantServers implements MultiServerManager {
     }
   }
 
-  _getNode(): MemcacheNode {
-    const n = this._servers.length > 1 ? Math.floor(Math.random() * this._servers.length) : 0;
-    const server = this._servers[n];
+  _getNode(key: string): MemcacheNode {
+    const serverKey = this.getServerKey(key);
+    const server = this._serversByServerKey[serverKey];
+    if (!server) {
+      throw new Error("Server not found");
+    }
     let node = this._nodes[server.server];
     if (node) {
       return node;
@@ -123,5 +140,9 @@ export default class RedundantServers implements MultiServerManager {
     node = new MemcacheNode(this.client, server);
     this._nodes[server.server] = node;
     return node;
+  }
+
+  getServerKey(key: string): string {
+    return this._keyToServerHashFunction(this._serverKeys, key);
   }
 }

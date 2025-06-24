@@ -211,10 +211,10 @@ describe("memcache client", function () {
   it("should use callback for send", (done) => {
     const x = new MemcacheClient({ server });
     const key = `foo_${Date.now()}`;
-    x.send(`set ${key} 0 0 5\r\nhello\r\n`, {}, (err, data) => {
+    x.send(`set ${key} 0 0 5\r\nhello\r\n`, "", {}, (err, data) => {
       expect(err).toBeNull();
       expect(data).toEqual(["STORED"]);
-      x.send(`get ${key}\r\n`, (gerr, v) => {
+      x.send(`get ${key}\r\n`, "", {}, (gerr, v) => {
         expect(gerr).toBeNull();
         expect(v[key].value).toEqual("hello");
         x.shutdown();
@@ -410,7 +410,8 @@ describe("memcache client", function () {
           .then(() =>
             x
               .send<MultiRetrievalResponse<string>>(
-                `gets ${key1} ${key2} ${key3} ${key4} ${key5}\r\n`
+                `gets ${key1} ${key2} ${key3} ${key4} ${key5}\r\n`,
+                ""
               )
               .then(verifyResults)
           )
@@ -422,12 +423,15 @@ describe("memcache client", function () {
           .then(() => x.mg([key1, key2, key3, key4, key5]).then(verifyResults as any))
           .then(() =>
             x
-              .send<MultiRetrievalResponse<string>>((socket) =>
-                socket?.write(`gets ${key1} ${key2} ${key3} ${key4} ${key5}\r\n`)
+              .send<MultiRetrievalResponse<string>>(
+                (socket) => socket?.write(`gets ${key1} ${key2} ${key3} ${key4} ${key5}\r\n`),
+                ""
               )
               .then(verifyResults)
           )
-          .then(() => expect(x._servers._getNode().connections.length).toEqual(expectedConnections))
+          .then(() =>
+            expect(x._servers._getNode("").connections.length).toEqual(expectedConnections)
+          )
           .finally(() => {
             singleServer.server.shutdown();
             done();
@@ -486,7 +490,7 @@ describe("memcache client", function () {
     const objFlag = ValueFlags.TYPE_JSON;
     let testError: Error;
 
-    x.send(`set foo ${objFlag} 60 5\r\nabcde\r\n`)
+    x.send(`set foo ${objFlag} 60 5\r\nabcde\r\n`, "")
       .then(() => x.get("foo"))
       .catch((err: Error) => (testError = err))
       .then(() => {
@@ -500,7 +504,7 @@ describe("memcache client", function () {
     const objFlag = ValueFlags.TYPE_JSON | ValueFlags.COMPRESS;
     let testError: Error;
 
-    x.send(`set foo ${objFlag} 60 5\r\nabcde\r\n`)
+    x.send(`set foo ${objFlag} 60 5\r\nabcde\r\n`, "")
       .then(() => x.get("foo"))
       .catch((err) => (testError = err))
       .then(() => {
@@ -794,7 +798,7 @@ describe("memcache client", function () {
         .then((v?: string[]) => expect(v).toBeUndefined())
         .then(() => x.mg(key))
         .then((v: MetaRetrievalCommandResponse<string>) => expect(v.value).toEqual("1"))
-        .then(() => x.cmd(`incr ${key} 5`, { noreply: true }))
+        .then(() => x.cmd(`incr ${key} 5`, "", { noreply: true }))
         .then((v?: string[]) => expect(v).toBeUndefined())
         .then(() => x.mg(key))
         .then((v: MetaRetrievalCommandResponse<string>) => expect(v.value).toEqual("6"))
@@ -994,7 +998,7 @@ describe("memcache client", function () {
       .then((v?: string[]) => expect(v).toBeUndefined())
       .then(() => x.get(key))
       .then((v: RetrievalCommandResponse<string>) => expect(v.value).toEqual("1"))
-      .then(() => x.cmd(`incr ${key} 5`, { noreply: true }))
+      .then(() => x.cmd(`incr ${key} 5`, "", { noreply: true }))
       .then((v?: string[]) => expect(v).toBeUndefined())
       .then(() => x.get(key))
       .then((v: RetrievalCommandResponse<string>) => expect(v.value).toEqual("6"))
@@ -1040,7 +1044,7 @@ describe("memcache client", function () {
     x.cmd<StatsCommandResponse>("stats")
       .then((v) => {
         firstConnId = v.STAT[2][1];
-        x._servers._getNode().connections[0].socket?.emit("error", new Error("ECONNRESET"));
+        x._servers._getNode("").connections[0].socket?.emit("error", new Error("ECONNRESET"));
       })
       .then(() => x.cmd<StatsCommandResponse>("stats"))
       .then((v) => {
@@ -1063,7 +1067,7 @@ describe("memcache client", function () {
     x.cmd<StatsCommandResponse>("stats")
       .then((v) => {
         firstConnId = v.STAT[2][1];
-        x._servers._getNode().connections[0].socket?.emit("timeout");
+        x._servers._getNode("").connections[0].socket?.emit("timeout");
       })
       .then(() => x.cmd<StatsCommandResponse>("stats"))
       .then((v) => {
@@ -1093,7 +1097,7 @@ describe("memcache client", function () {
           return x.cmd<StatsCommandResponse>("stats");
         })
         .then((v) => {
-          expect(x._servers._getNode().connections[0]._cmdTimeout).toEqual(100);
+          expect(x._servers._getNode("").connections[0]._cmdTimeout).toEqual(100);
           expect(firstConnId).not.toBe(0);
           expect(firstConnId).not.toBe(v.STAT[2][1]);
         })

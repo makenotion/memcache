@@ -1,5 +1,6 @@
 import { ConnectionOptions } from "tls";
 import { MemcacheConnection } from "./lib/connection";
+import { MemcacheNode } from "./lib/memcache-node";
 
 export type CommandCallback = (conn: MemcacheConnection) => void;
 
@@ -58,6 +59,11 @@ export type MemcacheClientOptions = {
    * to denote the type of values stored in memcached
    */
   assumeBuffer?: boolean;
+  /**
+   * If provided, this will be used to determine which server to route a given key to
+   * If not provided, all servers will be treated as redundant (keys can route to any server)
+   */
+  keyToServerHashFunction?: (servers: string[], key: string) => string;
 };
 
 // connection
@@ -73,3 +79,11 @@ export type QueuedCommandContext = CommandContext & {
 };
 
 export type ConnectionError = Error & { connecting?: boolean };
+
+export interface MultiServerManager {
+  doCmd(action: CommandCallback, key: string): void | Promise<unknown>;
+  shutdown(): void;
+  _getNode(key: string): MemcacheNode;
+  _servers: Array<SingleServerEntry>;
+  _exServers: Array<SingleServerEntry>;
+}
