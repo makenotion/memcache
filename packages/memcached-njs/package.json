@@ -29,6 +29,7 @@
   },
   "devDependencies": {
     "@types/memcached": "2.2.7",
+    "@types/node": "^22.13.17",
     "memcached": "2.2.2"
   },
   "@xarc/module-dev": {
