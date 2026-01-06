@@ -3,6 +3,7 @@ import { MemcacheNode } from "./memcache-node";
 import { MemcacheClient } from "./client";
 import assert from "assert";
 import {
+ServerConfig,
   SingleServerEntry,
   MultipleServerEntry,
   ServerDefinition,
@@ -33,25 +34,32 @@ export default class ConsistentlyHashedServers implements MultiServerManager {
 
   constructor(
     client: MemcacheClient,
-    server: SingleServerEntry,
+    server: ServerDefinition | SingleServerEntry | MultipleServerEntry,
     keyToServerHashFunction: (servers: string[], key: string) => string
   ) {
     this.client = client;
     this._keyToServerHashFunction = keyToServerHashFunction;
     let servers;
     let maxConnections = defaults.MAX_CONNECTIONS;
-    if (typeof server === "object") {
-      if (server.server) {
-        maxConnections = server.maxConnections || defaults.MAX_CONNECTIONS;
-        servers = [{ server: server.server, maxConnections }];
-      } else {
-        servers = (server as unknown as MultipleServerEntry).servers;
-        assert(servers, "no servers provided");
-        assert(Array.isArray(servers), "servers is not an array");
-      }
-    } else {
-      servers = [{ server, maxConnections }];
+    let config: ServerConfig = {
+      failedServerOutTime: defaults.FAILED_SERVER_OUT_TIME,
+      retryFailedServerInterval: defaults.RETRY_FAILED_SERVER_INTERVAL,
+      keepLastServer: defaults.KEEP_LAST_SERVER,
+    };
+    if ("serverEntry" in server) { // server is a ServerDefinition, extract configs and server entry
+      config = _defaults({}, server.config, config);
+      server = server.serverEntry;
     }
+    if ("server" in server) { // server is a SingleServerEntry
+      maxConnections = server.maxConnections || defaults.MAX_CONNECTIONS;
+      servers = [{ server: server.server, maxConnections }];
+    } else if ("servers" in server) { // server is a MultipleServerEntry
+      servers = server.servers;
+    } else {
+      throw new Error("Invalid server definition");
+    }
+
+    this._config = config;
     this._servers = servers;
     this._serversByServerKey = {};
     this._serverKeys = [];
@@ -61,11 +69,6 @@ export default class ConsistentlyHashedServers implements MultiServerManager {
     }
     this._exServers = []; // servers that failed connection
     this._nodes = {};
-    this._config = _defaults({}, (server as unknown as ServerDefinition).config, {
-      failedServerOutTime: defaults.FAILED_SERVER_OUT_TIME,
-      retryFailedServerInterval: defaults.RETRY_FAILED_SERVER_INTERVAL,
-      keepLastServer: defaults.KEEP_LAST_SERVER,
-    });
   }
 
   shutdown(): void {

@@ -2,9 +2,6 @@ import assert from "assert";
 import { optionalRequire } from "optional-require";
 import { Socket } from "net";
 
-const Promise = optionalRequire("bluebird", {
-  default: global.Promise,
-});
 const Zstd = optionalRequire("zstd.ts");
 
 import nodeify from "./nodeify";
@@ -33,11 +30,12 @@ type StoreParams = string | number | Buffer | Record<string, unknown>;
 type CommonCommandOption = Readonly<{ noreply?: boolean; expectedResponses?: number }>;
 
 type StoreCommandOptions = CommonCommandOption & { ignoreNotStored?: boolean } & Readonly<{
-    lifetime?: number;
-    compress?: boolean;
-  }>;
+  lifetime?: number;
+  compress?: boolean;
+}>;
 
-type CasCommandOptions = CommonCommandOption &
+// Exported for testing
+export type CasCommandOptions = CommonCommandOption &
   StoreCommandOptions &
   Readonly<{ casUniq: number | string }>;
 
@@ -171,7 +169,7 @@ export class MemcacheClient extends EventEmitter {
       // TODO: implement this
       this._servers = new ConsistentlyHashedServers(
         this,
-        options.server as unknown as SingleServerEntry,
+        options.server,
         options.keyToServerHashFunction
       );
     } else {
@@ -386,6 +384,35 @@ export class MemcacheClient extends EventEmitter {
     return this.cmd(`version`, "", {}, callback) as unknown as Promise<string[]>;
   }
 
+  async versionAll(
+    trackingCallbacks?: {
+      beforePing?: (serverKey: string) => void;
+      afterPing?: (serverKey: string, error?: Error) => void;
+    },
+    callback?: OperationCallback<
+    Error,
+    Record<string, {version?: string[] | null, error?: Error}>
+    >): Promise<{
+    values: Record<string, {version?: string[] | null, error?: Error}>
+  }> {
+    const versionObjects = await Promise.all(this._servers._servers.map(async (server: SingleServerEntry) => {
+      trackingCallbacks?.beforePing?.(server.server);
+      try {
+        const response = await this.cmd(`version`, server.server, {}, callback) as string[];
+        trackingCallbacks?.afterPing?.(server.server, undefined);
+        return { server: server.server, value: { version: response } };
+      } catch (error) {
+        trackingCallbacks?.afterPing?.(server.server, error as Error);
+        return { server: server.server, value: { error: error as Error } };
+      }
+    }));
+    const values = versionObjects.reduce((accumulator, versionObject) => {
+      accumulator[versionObject.server] = versionObject.value;
+      return accumulator;
+    }, {} as Record<string, {version?: string[] | null, error?: Error}>);
+    return { values };
+  }
+
   // a generic API for issuing one of the store commands
   store(
     cmd: string,
@@ -540,19 +567,19 @@ export class MemcacheClient extends EventEmitter {
       // e.g. "mg foo v\r\nmg bar v\r\nmg baz v\r\n" instead of "mg foo bar baz v\r\n"
       return Array.isArray(key)
         ? this.xsend(key.map((k) => `${cmd} ${k} ${metaFlags}\r\n`).join(""), key[0], {
-            ...options,
-            expectedResponses: key.length,
-          })
+          ...options,
+          expectedResponses: key.length,
+        })
         : this.xsend(`${cmd} ${key} ${metaFlags}\r\n`, key, options).then((r: unknown) =>
-            Object.values(r as Record<string, unknown>).shift()
-          );
+          Object.values(r as Record<string, unknown>).shift()
+        );
     }
     return Array.isArray(key)
       ? // NOTE: can't do this for meta commands, instead do "mg foo v\r\nmg bar v\r\nmg baz v\r\n"
-        this.xsend(`${cmd} ${key.join(" ")}\r\n`, key[0], options)
+      this.xsend(`${cmd} ${key.join(" ")}\r\n`, key[0], options)
       : this.xsend(`${cmd} ${key}\r\n`, key, options).then(
-          (r: unknown) => (r as Record<string, unknown>)[key]
-        );
+        (r: unknown) => (r as Record<string, unknown>)[key]
+      );
   }
 
   //

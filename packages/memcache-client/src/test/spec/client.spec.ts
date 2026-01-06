@@ -9,6 +9,7 @@ import {
   DangleWaitResponse,
   StatsCommandResponse,
   MetaRetrievalCommandResponse,
+  CasCommandOptions,
 } from "../../";
 import Fs from "fs";
 import Path from "path";
@@ -23,7 +24,7 @@ describe("memcache client", function () {
   });
 
   let memcachedServer: MemcachedServer;
-  let server: string;
+  let server: SingleServerEntry;
   let serverPort: number;
   let sysConnectTimeout = 0;
 
@@ -38,7 +39,7 @@ describe("memcache client", function () {
     return memcached.startServer(options).then((ms: MemcachedServer) => {
       console.log("memcached server started");
       serverPort = (ms._server?.address() as AddressInfo).port;
-      server = `localhost:${serverPort}`;
+      server = { server: `localhost:${serverPort}` };
       memcachedServer = ms;
     });
   };
@@ -56,7 +57,7 @@ describe("memcache client", function () {
 
   beforeAll((done) => {
     if (process.env.MEMCACHED_SERVER) {
-      server = process.env.MEMCACHED_SERVER;
+      server = { server: process.env.MEMCACHED_SERVER };
       done();
     } else {
       restartMemcachedServer()
@@ -73,7 +74,7 @@ describe("memcache client", function () {
   });
 
   it.skip("should handle ECONNREFUSED", (done) => {
-    const x = new MemcacheClient({ server: "localhost:65000" });
+    const x = new MemcacheClient({ server: { server: "localhost:65000" } });
     let testError: Error;
     x.cmd("stats")
       .catch((err: Error) => (testError = err))
@@ -84,7 +85,7 @@ describe("memcache client", function () {
   });
 
   it("should handle ENOTFOUND", (done) => {
-    const x = new MemcacheClient({ server: "badhost.baddomain.com:65000" });
+    const x = new MemcacheClient({ server: { server: "badhost.baddomain.com:65000" } });
     let testError: Error;
     x.cmd("stats")
       .catch((err: Error) => (testError = err))
@@ -95,7 +96,7 @@ describe("memcache client", function () {
   });
 
   it("should handle connection timeout", (done) => {
-    const x = new MemcacheClient({ server: "192.168.255.1:8181", connectTimeout: 50 });
+    const x = new MemcacheClient({ server: { server: "192.168.255.1:8181" }, connectTimeout: 50 });
     let testError: Error;
     x.cmd("stats")
       .catch((err: Error) => (testError = err))
@@ -110,7 +111,7 @@ describe("memcache client", function () {
     (done) => {
       console.log("testing wait system connect ETIMEDOUT - will take a loooong time");
       const x = new MemcacheClient({
-        server: "192.168.255.1:8181",
+        server: { server: "192.168.255.1:8181" },
         connectTimeout: 50,
         keepDangleSocket: true,
       });
@@ -146,7 +147,7 @@ describe("memcache client", function () {
       // make sure system connect timeout has been detected
       expect(sysConnectTimeout).toBeGreaterThan(0);
       const x = new MemcacheClient({
-        server: "192.168.255.1:8181",
+        server: { server: "192.168.255.1:8181" },
         connectTimeout: 50,
       });
 
@@ -166,7 +167,7 @@ describe("memcache client", function () {
 
   it("should timeout dangle wait", (done) => {
     const x = new MemcacheClient({
-      server: "192.168.255.1:8181",
+      server: { server: "192.168.255.1:8181" },
       connectTimeout: 50,
       keepDangleSocket: true,
       dangleSocketWaitTimeout: 100,
@@ -225,9 +226,11 @@ describe("memcache client", function () {
 
   it("should set value with custom lifetime", () => {
     const x = new MemcacheClient({ server });
-    let testOptions: Record<string, string | number> = {};
-    (x._callbackSend as unknown) = (data: unknown, options: Record<string, string | number>) =>
-      (testOptions = options);
+    let testOptions: Partial<CasCommandOptions> = {};
+    x._callbackSend = (data: unknown, key: string, options: Partial<CasCommandOptions> | undefined): Promise<unknown> => {
+      testOptions = options || {};
+      return Promise.resolve();
+    };
     const key = `foo_${Date.now()}`;
     x.set(key, "bar", { lifetime: 500 });
     expect(testOptions?.lifetime).toEqual(500);
@@ -254,7 +257,7 @@ describe("memcache client", function () {
   it("should return set errors other than NOT_STORED even if ignore option is true", (done) => {
     startSingleServer().then(async (singleServer) => {
       const x = new MemcacheClient({
-        server: singleServer.serverUrl,
+        server: { server: singleServer.serverUrl },
         ignoreNotStored: true,
         cmdTimeout: 100,
       });
@@ -1081,7 +1084,7 @@ describe("memcache client", function () {
     startSingleServer(20000).then((singleServer) => {
       let firstConnId = "0";
       let timeoutError: Error;
-      const x = new MemcacheClient({ server: singleServer.serverUrl, cmdTimeout: 100 });
+      const x = new MemcacheClient({ server: { server: singleServer.serverUrl }, cmdTimeout: 100 });
       x.cmd<StatsCommandResponse>("stats")
         .then((v) => {
           firstConnId = v.STAT[2][1];
