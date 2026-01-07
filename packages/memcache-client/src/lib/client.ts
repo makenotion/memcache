@@ -166,7 +166,6 @@ export class MemcacheClient extends EventEmitter {
     this._logger = options.logger !== undefined ? options.logger : nullLogger;
     this.options.cmdTimeout = options.cmdTimeout || defaults.CMD_TIMEOUT_MS;
     if (options.keyToServerHashFunction) {
-      // TODO: implement this
       this._servers = new ConsistentlyHashedServers(
         this,
         options.server,
