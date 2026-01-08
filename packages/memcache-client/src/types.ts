@@ -16,15 +16,15 @@ export type SingleServerEntry = {
 
 export type MultipleServerEntry = { servers: Array<SingleServerEntry> };
 
-type Serverconfig = {
+export type ServerConfig = {
   retryFailedServerInterval: number;
   failedServerOutTime: number;
   keepLastServer?: boolean;
 };
 
 export type ServerDefinition = {
-  server: SingleServerEntry | MultipleServerEntry;
-  config: Serverconfig;
+  serverEntry: SingleServerEntry | MultipleServerEntry;
+  config: ServerConfig;
 };
 
 export type ResolveCallback = <T extends any>(result: T) => void;
@@ -41,7 +41,7 @@ export type PackedData = {
 };
 
 export type MemcacheClientOptions = {
-  server: ServerDefinition | SingleServerEntry | MultipleServerEntry | string;
+  server: ServerDefinition | SingleServerEntry | MultipleServerEntry;
   ignoreNotStored?: boolean;
   lifetime?: number;
   noDelay?: boolean;
@@ -86,4 +86,5 @@ export interface MultiServerManager {
   _getNode(key: string): MemcacheNode;
   _servers: Array<SingleServerEntry>;
   _exServers: Array<SingleServerEntry>;
+  getServerKey(key: string): string;
 }

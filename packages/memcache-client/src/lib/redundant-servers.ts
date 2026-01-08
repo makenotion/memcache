@@ -124,4 +124,8 @@ export default class RedundantServers implements MultiServerManager {
     this._nodes[server.server] = node;
     return node;
   }
+
+  getServerKey(key: string): string {
+    return key;
+  }
 }

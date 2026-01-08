@@ -49,7 +49,7 @@ describe("memcache TLS client", function () {
     startMemcachedServer(defaultTlsOptions)
       .then(() => done())
       .catch(done);
-    const x = new MemcacheClient({ server: "localhost:65000", tls: {} });
+    const x = new MemcacheClient({ server: { server: "localhost:65000" }, tls: {} });
     let testError: Error;
     x.cmd("stats")
       .catch((err: Error) => (testError = err))
@@ -60,7 +60,7 @@ describe("memcache TLS client", function () {
   });
 
   it("TLS handles ENOTFOUND", (done) => {
-    const x = new MemcacheClient({ server: "badhost.baddomain.com:65000", tls: {} });
+    const x = new MemcacheClient({ server: { server: "badhost.baddomain.com:65000" }, tls: {} });
     let testError: Error;
     x.cmd("stats")
       .catch((err: Error) => (testError = err))
@@ -73,7 +73,7 @@ describe("memcache TLS client", function () {
   it("TLS connection with basic commands", (done) => {
     startMemcachedServer(defaultTlsOptions).then(() => {
       const c = new MemcacheClient({
-        server: server,
+        server: { server: server },
         tls: {
           ca: fs.readFileSync(Path.join(__dirname, "cacert.pem")),
           checkServerIdentity: () => {
@@ -99,7 +99,7 @@ describe("memcache TLS client", function () {
   it("TLS connection with client authentication", (done) => {
     startMemcachedServer(tlsOptionsClientAuth).then(() => {
       const c = new MemcacheClient({
-        server: server,
+        server: { server: server },
         tls: {
           key: fs.readFileSync(Path.join(__dirname, "client_key.pem")),
           cert: fs.readFileSync(Path.join(__dirname, "client_crt.pem")),
