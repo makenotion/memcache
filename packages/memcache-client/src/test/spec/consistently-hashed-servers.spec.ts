@@ -17,6 +17,22 @@ describe("consistently hashed servers", function () {
     logger: NullLogger,
   };
 
+  // Tracking hash function factory - wraps another hash function and records all routing decisions
+  type RoutingLog = Map<string, string[]>; // key -> list of servers it was routed to
+  const createTrackingHashFunction = (
+    baseHashFn: (servers: string[], key: string) => string,
+    routingLog: RoutingLog
+  ) => {
+    return (servers: string[], key: string): string => {
+      const server = baseHashFn(servers, key);
+      if (!routingLog.has(key)) {
+        routingLog.set(key, []);
+      }
+      routingLog.get(key)!.push(server);
+      return server;
+    };
+  };
+
   // Simple hash function that routes based on first character of key
   const simpleHashFunction = (servers: string[], key: string): string => {
     const index = key.charCodeAt(0) % servers.length;
@@ -44,16 +60,23 @@ describe("consistently hashed servers", function () {
       const ports = servers.map((s) => (s._server?.address() as AddressInfo).port);
       const serversUrls = ports.map((p) => ({ server: `localhost:${p}`, maxConnections: 3 }));
 
+      // Track which server each key is routed to
+      const routingLog: RoutingLog = new Map();
+      const trackingHashFn = createTrackingHashFunction(simpleHashFunction, routingLog);
+
       const x = new MemcacheClient({
         server: { servers: serversUrls },
-        keyToServerHashFunction: simpleHashFunction,
+        keyToServerHashFunction: trackingHashFn,
       });
 
       try {
         // Set values with keys that will hash to different servers
-        await x.set("aaa", "value-a"); // 'a' = 97, 97 % 3 = 1
-        await x.set("bbb", "value-b"); // 'b' = 98, 98 % 3 = 2
-        await x.set("ccc", "value-c"); // 'c' = 99, 99 % 3 = 0
+        // 'a' = 97, 97 % 3 = 1 -> servers[1]
+        // 'b' = 98, 98 % 3 = 2 -> servers[2]
+        // 'c' = 99, 99 % 3 = 0 -> servers[0]
+        await x.set("aaa", "value-a");
+        await x.set("bbb", "value-b");
+        await x.set("ccc", "value-c");
 
         // Verify values can be retrieved
         const resultA = await x.get<string>("aaa");
@@ -63,6 +86,29 @@ describe("consistently hashed servers", function () {
         expect(resultA.value).toEqual("value-a");
         expect(resultB.value).toEqual("value-b");
         expect(resultC.value).toEqual("value-c");
+
+        // Verify routing - each key should have been routed to a specific server
+        // set + get = 2 operations per key
+        expect(routingLog.get("aaa")).toHaveLength(2);
+        expect(routingLog.get("bbb")).toHaveLength(2);
+        expect(routingLog.get("ccc")).toHaveLength(2);
+
+        // Verify keys went to expected servers based on hash function
+        const expectedServerA = serversUrls[97 % 3].server; // 'a' = 97 -> index 1
+        const expectedServerB = serversUrls[98 % 3].server; // 'b' = 98 -> index 2
+        const expectedServerC = serversUrls[99 % 3].server; // 'c' = 99 -> index 0
+
+        expect(routingLog.get("aaa")![0]).toEqual(expectedServerA);
+        expect(routingLog.get("bbb")![0]).toEqual(expectedServerB);
+        expect(routingLog.get("ccc")![0]).toEqual(expectedServerC);
+
+        // Verify all three keys went to different servers
+        const usedServers = [
+          routingLog.get("aaa")![0],
+          routingLog.get("bbb")![0],
+          routingLog.get("ccc")![0],
+        ];
+        expect(uniq(usedServers).length).toBe(3);
       } finally {
         x.shutdown();
         servers.forEach((s) => s.shutdown());
@@ -80,17 +126,12 @@ describe("consistently hashed servers", function () {
       const serversUrls = ports.map((p) => ({ server: `localhost:${p}`, maxConnections: 3 }));
 
       // Track which server each key is routed to
-      const routingLog: Record<string, string[]> = {};
-      const trackingHashFunction = (serverList: string[], key: string): string => {
-        const server = simpleHashFunction(serverList, key);
-        if (!routingLog[key]) routingLog[key] = [];
-        routingLog[key].push(server);
-        return server;
-      };
+      const routingLog: RoutingLog = new Map();
+      const trackingHashFn = createTrackingHashFunction(simpleHashFunction, routingLog);
 
       const x = new MemcacheClient({
         server: { servers: serversUrls },
-        keyToServerHashFunction: trackingHashFunction,
+        keyToServerHashFunction: trackingHashFn,
       });
 
       try {
@@ -104,9 +145,10 @@ describe("consistently hashed servers", function () {
         await x.set(testKey, "value3");
 
         // Verify all operations went to the same server
-        const uniqueServers = uniq(routingLog[testKey]);
+        const keyRouting = routingLog.get(testKey) || [];
+        const uniqueServers = uniq(keyRouting);
         expect(uniqueServers.length).toBe(1);
-        expect(routingLog[testKey].length).toBe(5); // 5 operations
+        expect(keyRouting.length).toBe(5); // 5 operations
       } finally {
         x.shutdown();
         servers.forEach((s) => s.shutdown());
@@ -122,9 +164,12 @@ describe("consistently hashed servers", function () {
       const ports = servers.map((s) => (s._server?.address() as AddressInfo).port);
       const serversUrls = ports.map((p) => ({ server: `localhost:${p}`, maxConnections: 3 }));
 
+      const routingLog: RoutingLog = new Map();
+      const trackingHashFn = createTrackingHashFunction(simpleHashFunction, routingLog);
+
       const x = new MemcacheClient({
         server: { servers: serversUrls },
-        keyToServerHashFunction: simpleHashFunction,
+        keyToServerHashFunction: trackingHashFn,
       });
 
       try {
@@ -153,9 +198,12 @@ describe("consistently hashed servers", function () {
       const ports = servers.map((s) => (s._server?.address() as AddressInfo).port);
       const serversUrls = ports.map((p) => ({ server: `localhost:${p}`, maxConnections: 3 }));
 
+      const routingLog: RoutingLog = new Map();
+      const trackingHashFn = createTrackingHashFunction(prefixHashFunction, routingLog);
+
       const x = new MemcacheClient({
         server: { servers: serversUrls },
-        keyToServerHashFunction: prefixHashFunction,
+        keyToServerHashFunction: trackingHashFn,
       });
 
       try {
@@ -176,15 +224,27 @@ describe("consistently hashed servers", function () {
         expect(result2.value).toEqual("value-2-1");
         expect(result3.value).toEqual("value-3-1");
 
-        // Verify keys were actually routed to different servers
-        const serverKey0 = x._servers.getServerKey("server0:key1");
-        const serverKey1 = x._servers.getServerKey("server1:key1");
-        const serverKey2 = x._servers.getServerKey("server2:key1");
-        const serverKey3 = x._servers.getServerKey("server3:key1");
+        // Verify keys were routed to the expected servers via tracking log
+        const server0Routing = routingLog.get("server0:key1") || [];
+        const server1Routing = routingLog.get("server1:key1") || [];
+        const server2Routing = routingLog.get("server2:key1") || [];
+        const server3Routing = routingLog.get("server3:key1") || [];
+
+        // Each key should have 2 routing calls (set + get)
+        expect(server0Routing.length).toBe(2);
+        expect(server1Routing.length).toBe(2);
+        expect(server2Routing.length).toBe(2);
+        expect(server3Routing.length).toBe(2);
 
         // All four keys should go to different servers
-        const uniqueServers = uniq([serverKey0, serverKey1, serverKey2, serverKey3]);
-        expect(uniqueServers.length).toBe(4);
+        const usedServers = [server0Routing[0], server1Routing[0], server2Routing[0], server3Routing[0]];
+        expect(uniq(usedServers).length).toBe(4);
+
+        // Verify they went to expected servers (prefix-based routing)
+        expect(server0Routing[0]).toEqual(serversUrls[0].server);
+        expect(server1Routing[0]).toEqual(serversUrls[1].server);
+        expect(server2Routing[0]).toEqual(serversUrls[2].server);
+        expect(server3Routing[0]).toEqual(serversUrls[3].server);
       } finally {
         x.shutdown();
         servers.forEach((s) => s.shutdown());
@@ -200,9 +260,12 @@ describe("consistently hashed servers", function () {
       const ports = servers.map((s) => (s._server?.address() as AddressInfo).port);
       const serversUrls = ports.map((p) => ({ server: `localhost:${p}`, maxConnections: 3 }));
 
+      const routingLog: RoutingLog = new Map();
+      const trackingHashFn = createTrackingHashFunction(prefixHashFunction, routingLog);
+
       const x = new MemcacheClient({
         server: { servers: serversUrls },
-        keyToServerHashFunction: prefixHashFunction,
+        keyToServerHashFunction: trackingHashFn,
       });
 
       try {
@@ -220,13 +283,15 @@ describe("consistently hashed servers", function () {
         expect(r2.value).toEqual("value2");
         expect(r3.value).toEqual("value3");
 
-        // All keys should route to the same server
-        const serverKey1 = x._servers.getServerKey("server0:key1");
-        const serverKey2 = x._servers.getServerKey("server0:key2");
-        const serverKey3 = x._servers.getServerKey("server0:key3");
+        // Verify all keys went to the same server via tracking log
+        const key1Routing = routingLog.get("server0:key1") || [];
+        const key2Routing = routingLog.get("server0:key2") || [];
+        const key3Routing = routingLog.get("server0:key3") || [];
 
-        expect(serverKey1).toEqual(serverKey2);
-        expect(serverKey2).toEqual(serverKey3);
+        // All should go to server0
+        expect(key1Routing[0]).toEqual(serversUrls[0].server);
+        expect(key2Routing[0]).toEqual(serversUrls[0].server);
+        expect(key3Routing[0]).toEqual(serversUrls[0].server);
       } finally {
         x.shutdown();
         servers.forEach((s) => s.shutdown());
@@ -242,9 +307,12 @@ describe("consistently hashed servers", function () {
       const ports = servers.map((s) => (s._server?.address() as AddressInfo).port);
       const serversUrls = ports.map((p) => ({ server: `localhost:${p}`, maxConnections: 3 }));
 
+      const routingLog: RoutingLog = new Map();
+      const trackingHashFn = createTrackingHashFunction(prefixHashFunction, routingLog);
+
       const x = new MemcacheClient({
         server: { servers: serversUrls },
-        keyToServerHashFunction: prefixHashFunction,
+        keyToServerHashFunction: trackingHashFn,
       });
 
       try {
@@ -258,10 +326,18 @@ describe("consistently hashed servers", function () {
         expect(mg0.value).toEqual("meta-value-0");
         expect(mg1.value).toEqual("meta-value-1");
 
-        // Verify they're on different servers
-        const serverKey0 = x._servers.getServerKey("server0:meta-key");
-        const serverKey1 = x._servers.getServerKey("server1:meta-key");
-        expect(serverKey0).not.toEqual(serverKey1);
+        // Verify routing via tracking log
+        const server0Routing = routingLog.get("server0:meta-key") || [];
+        const server1Routing = routingLog.get("server1:meta-key") || [];
+
+        // Each key had set + mg = 2 operations
+        expect(server0Routing.length).toBe(2);
+        expect(server1Routing.length).toBe(2);
+
+        // Verify they went to different servers
+        expect(server0Routing[0]).toEqual(serversUrls[0].server);
+        expect(server1Routing[0]).toEqual(serversUrls[1].server);
+        expect(server0Routing[0]).not.toEqual(server1Routing[0]);
       } finally {
         x.shutdown();
         servers.forEach((s) => s.shutdown());
@@ -280,9 +356,12 @@ describe("consistently hashed servers", function () {
       const ports = servers.map((s) => (s._server?.address() as AddressInfo).port);
       const serversUrls = ports.map((p) => ({ server: `localhost:${p}`, maxConnections: 3 }));
 
+      const routingLog: RoutingLog = new Map();
+      const trackingHashFn = createTrackingHashFunction(prefixHashFunction, routingLog);
+
       const x = new MemcacheClient({
         server: { servers: serversUrls },
-        keyToServerHashFunction: prefixHashFunction,
+        keyToServerHashFunction: trackingHashFn,
         cmdTimeout: 500,
       });
 
@@ -299,6 +378,11 @@ describe("consistently hashed servers", function () {
         expect(r0.value).toEqual("value0");
         expect(r1.value).toEqual("value1");
         expect(r2.value).toEqual("value2");
+
+        // Verify routing via tracking log
+        expect(routingLog.get("server0:key")?.[0]).toEqual(serversUrls[0].server);
+        expect(routingLog.get("server1:key")?.[0]).toEqual(serversUrls[1].server);
+        expect(routingLog.get("server2:key")?.[0]).toEqual(serversUrls[2].server);
 
         // All three servers should be active
         expect(x._servers._servers.length).toBe(3);
@@ -456,15 +540,22 @@ describe("consistently hashed servers", function () {
       const ports = servers.map((s) => (s._server?.address() as AddressInfo).port);
       const serversUrls = ports.map((p) => ({ server: `localhost:${p}`, maxConnections: 3 }));
 
-      // Create two clients with different hash functions
+      // Track routing for both clients
+      const routingLog1: RoutingLog = new Map();
+      const routingLog2: RoutingLog = new Map();
+
+      // Create two clients with different hash functions that route to different servers
+      const alwaysServer0 = (_servers: string[], _key: string) => serversUrls[0].server;
+      const alwaysServer1 = (_servers: string[], _key: string) => serversUrls[1].server;
+
       const client1 = new MemcacheClient({
         server: { servers: serversUrls },
-        keyToServerHashFunction: () => serversUrls[0].server, // Always route to server 0
+        keyToServerHashFunction: createTrackingHashFunction(alwaysServer0, routingLog1),
       });
 
       const client2 = new MemcacheClient({
         server: { servers: serversUrls },
-        keyToServerHashFunction: () => serversUrls[1].server, // Always route to server 1
+        keyToServerHashFunction: createTrackingHashFunction(alwaysServer1, routingLog2),
       });
 
       try {
@@ -475,9 +566,18 @@ describe("consistently hashed servers", function () {
         const result1 = await client1.get<string>("isolated-key");
         expect(result1.value).toEqual("isolated-value");
 
+        // Verify client1 routed to server 0
+        const client1Routing = routingLog1.get("isolated-key") || [];
+        expect(client1Routing[0]).toEqual(serversUrls[0].server);
+
         // Client2 should not find it (looks on server 1)
         const result2 = await client2.get<string>("isolated-key");
         expect(result2).toBeUndefined();
+
+        // Verify client2 routed to server 1 (different server)
+        const client2Routing = routingLog2.get("isolated-key") || [];
+        expect(client2Routing[0]).toEqual(serversUrls[1].server);
+        expect(client1Routing[0]).not.toEqual(client2Routing[0]);
       } finally {
         client1.shutdown();
         client2.shutdown();

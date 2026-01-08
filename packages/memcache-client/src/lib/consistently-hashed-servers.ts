@@ -1,7 +1,6 @@
 import defaults from "./defaults";
 import { MemcacheNode } from "./memcache-node";
 import { MemcacheClient } from "./client";
-import assert from "assert";
 import {
 ServerConfig,
   SingleServerEntry,
