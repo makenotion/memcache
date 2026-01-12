@@ -134,6 +134,22 @@ export type MultiCasRetrievalResponse<ValueType = unknown> = Record<
   CasRetrievalCommandResponse<ValueType>
 >;
 
+export interface MultiGetError<Keys extends string = string> {
+  error: Error;
+  serverKey: string;
+  keys: Keys[];
+}
+
+export interface MultiRetrievalWithErrorsResponse<ValueType = unknown, Keys extends string = string> {
+  result: MultiRetrievalResponse<ValueType>;
+  errors: MultiGetError<Keys>[];
+}
+
+export interface MultiCasRetrievalWithErrorsResponse<ValueType = unknown, Keys extends string = string> {
+  result: MultiCasRetrievalResponse<ValueType>;
+  errors: MultiGetError<Keys>[];
+}
+
 type MultiCasRetrieval<ValueType> = ValueType extends MultiCasRetrievalResponse
   ? ValueType
   : CasRetrievalCommandResponse<ValueType>;
@@ -505,6 +521,28 @@ export class MemcacheClient extends EventEmitter {
     return this.retrieve("gets", key, options, callback);
   }
 
+  // Like gets, but catches errors per-server instead of failing fast.
+  // Returns partial results along with error information for failed servers.
+  getsWithErrors<ValueType, Keys extends string = string>(
+    keys: Keys[],
+    options?: StoreCommandOptions
+  ): Promise<MultiCasRetrievalWithErrorsResponse<ValueType, Keys>> {
+    return this.xretrieveWithErrors("gets", keys, options) as Promise<
+      MultiCasRetrievalWithErrorsResponse<ValueType, Keys>
+    >;
+  }
+
+  // Like get, but catches errors per-server instead of failing fast.
+  // Returns partial results along with error information for failed servers.
+  getWithErrors<ValueType, Keys extends string = string>(
+    keys: Keys[],
+    options?: StoreCommandOptions
+  ): Promise<MultiRetrievalWithErrorsResponse<ValueType, Keys>> {
+    return this.xretrieveWithErrors("get", keys, options) as Promise<
+      MultiRetrievalWithErrorsResponse<ValueType, Keys>
+    >;
+  }
+
   // A generic API for issuing get or gets command
   retrieve<T>(
     cmd: string,
@@ -579,6 +617,57 @@ export class MemcacheClient extends EventEmitter {
       : this.xsend(`${cmd} ${key}\r\n`, key, options).then(
         (r: unknown) => (r as Record<string, unknown>)[key]
       );
+  }
+
+  // the promise only version of retrieve that catches errors per-server
+  // instead of failing fast, allowing partial results to be returned
+  async xretrieveWithErrors<Keys extends string>(
+    cmd: string,
+    keys: Keys[],
+    options?: StoreCommandOptions
+  ): Promise<MultiCasRetrievalWithErrorsResponse<unknown, Keys>> {
+    const serverManager = this._servers;
+
+    // If not using consistently hashed servers, just do a single request
+    if (!(serverManager instanceof ConsistentlyHashedServers)) {
+      try {
+        const result = await this._xretrieverByServer(cmd, keys, options);
+        return { result: result as MultiCasRetrievalResponse, errors: [] };
+      } catch (error) {
+        return {
+          result: {},
+          errors: [{ error: error as Error, serverKey: "", keys }],
+        };
+      }
+    }
+
+    // Group keys by server
+    const serverKeysMap = new Map<string, Keys[]>();
+    for (const k of keys) {
+      const serverKey = serverManager.getServerKey(k);
+      if (!serverKeysMap.has(serverKey)) {
+        serverKeysMap.set(serverKey, []);
+      }
+      serverKeysMap.get(serverKey)?.push(k);
+    }
+
+    const errors: MultiGetError<Keys>[] = [];
+    const results = await Promise.all(
+      Array.from(serverKeysMap.entries()).map(async ([serverKey, serverKeys]) => {
+        try {
+          return await this._xretrieverByServer(cmd, serverKeys, options);
+        } catch (error) {
+          errors.push({
+            error: error as Error,
+            serverKey,
+            keys: serverKeys,
+          });
+          return {};
+        }
+      })
+    );
+
+    return { result: Object.assign({}, ...results), errors };
   }
 
   //
