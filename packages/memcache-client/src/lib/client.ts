@@ -662,7 +662,6 @@ export class MemcacheClient extends EventEmitter {
             serverKey,
             keys: serverKeys,
           });
-          return {};
         }
       })
     );
