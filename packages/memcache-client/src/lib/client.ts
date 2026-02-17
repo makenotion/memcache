@@ -226,7 +226,7 @@ export class MemcacheClient extends EventEmitter {
       options = {};
     }
 
-    return this._callbackSend(data, key, options, callback) as unknown as Promise<ValueType>;
+    return this._callbackSend(data, key, options, callback);
   }
 
   // the promise only version of send
@@ -249,7 +249,7 @@ export class MemcacheClient extends EventEmitter {
     options?: CommonCommandOption,
     callback?: ErrorFirstCallback
   ): Promise<Response> {
-    return this.send(
+    return this.send<Response>(
       (socket) => {
         let line = data;
         if (options?.noreply) {
@@ -260,7 +260,7 @@ export class MemcacheClient extends EventEmitter {
       key || "",
       options,
       callback
-    ) as unknown as Promise<Response>;
+    );
   }
 
   // "set" means "store this data".
@@ -346,7 +346,7 @@ export class MemcacheClient extends EventEmitter {
       key,
       options as CommonCommandOption,
       callback
-    ) as unknown as Promise<string[]>;
+    );
   }
 
   // incr key by value, fire & forget with options.noreply
@@ -361,7 +361,7 @@ export class MemcacheClient extends EventEmitter {
       key,
       options as StoreCommandOptions,
       callback
-    ) as unknown as Promise<string>;
+    );
   }
 
   // decrease key by value, fire & forget with options.noreply
@@ -376,7 +376,7 @@ export class MemcacheClient extends EventEmitter {
       key,
       options as StoreCommandOptions,
       callback
-    ) as unknown as Promise<string>;
+    );
   }
 
   // touch key with exp time, fire & forget with options.noreply
@@ -391,12 +391,12 @@ export class MemcacheClient extends EventEmitter {
       key,
       options as CommonCommandOption,
       callback
-    ) as unknown as Promise<string[]>;
+    );
   }
 
   // get version of server
   version(callback?: OperationCallback<Error, string[]>): Promise<string[]> {
-    return this.cmd(`version`, "", {}, callback) as unknown as Promise<string[]>;
+    return this.cmd(`version`, "", {}, callback);
   }
 
   async versionAll(
