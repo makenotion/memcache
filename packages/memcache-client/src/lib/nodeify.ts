@@ -4,10 +4,10 @@ export type CallbackablePromise<T extends any> = Promise<T> & {
   nodeify?: (callback: ErrorFirstCallback) => void;
 };
 
-export default function nodeify(
-  promise: CallbackablePromise<unknown>,
+export default function nodeify<ValueType>(
+  promise: CallbackablePromise<ValueType>,
   callback?: ErrorFirstCallback
-): Promise<unknown> {
+): Promise<ValueType> {
   if (callback) {
     if (promise.nodeify !== undefined) {
       promise.nodeify(callback);
