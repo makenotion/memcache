@@ -227,7 +227,7 @@ describe("memcache client", function () {
   it("should set value with custom lifetime", () => {
     const x = new MemcacheClient({ server });
     let testOptions: Partial<CasCommandOptions> = {};
-    x._callbackSend = (data: unknown, key: string, options: Partial<CasCommandOptions> | undefined): Promise<unknown> => {
+    x._callbackSend = <ValueType>(data: unknown, key: string, options?: Partial<CasCommandOptions>): Promise<ValueType> => {
       testOptions = options || {};
       return Promise.resolve();
     };

@@ -21,6 +21,7 @@
     "plugins": [],
     "pretty": true,
     "resolveJsonModule": true,
+    "skipLibCheck": true,
     "sourceMap": true,
     "strictFunctionTypes": true,
     "strict": true,
