@@ -456,13 +456,17 @@ export class MemcacheClient extends EventEmitter {
         value,
         (options as Partial<CasCommandOptions>)?.compress === true
       );
-      const bytes = Buffer.byteLength(packed.data);
+      const packedBuf = Buffer.isBuffer(packed.data)
+        ? packed.data
+        : Buffer.from(packed.data);
+      const bytes = packedBuf.byteLength;
+      // TODO(dqing) fix type error; seems to be due to tsgo
       socket?.write(
         Buffer.concat([
           Buffer.from(`${cmd} ${key} ${packed.flag} ${lifetime} ${bytes}${casUniq}${noreply}\r\n`),
-          Buffer.isBuffer(packed.data) ? packed.data : Buffer.from(packed.data),
+          packedBuf,
           Buffer.from("\r\n"),
-        ])
+        ] as unknown as Uint8Array[]) as unknown as Uint8Array
       );
     };
 
