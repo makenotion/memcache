@@ -399,6 +399,16 @@ export class MemcacheClient extends EventEmitter {
     return this.cmd(`version`, "", {}, callback) as unknown as Promise<string[]>;
   }
 
+  // flush all keys from the server, optionally after a delay in seconds
+  flush(
+    exptime?: number,
+    options?: CommonCommandOption | OperationCallback<Error, string[]>,
+    callback?: OperationCallback<Error, string[]>
+  ): Promise<string[]> {
+    const cmd = exptime !== undefined ? `flush_all ${exptime}` : "flush_all";
+    return this.cmd(cmd, "", options as CommonCommandOption, callback) as unknown as Promise<string[]>;
+  }
+
   async versionAll(
     trackingCallbacks?: {
       beforePing?: (serverKey: string) => void;
