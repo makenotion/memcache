@@ -1,8 +1,7 @@
 import assert from "assert";
-import { optionalRequire } from "optional-require";
 import { Socket } from "net";
 
-const Zstd = optionalRequire("zstd.ts");
+import * as Zstd from "zstd.ts";
 
 import nodeify from "./nodeify";
 import ValuePacker from "./value-packer";
@@ -226,19 +225,19 @@ export class MemcacheClient extends EventEmitter {
       options = {};
     }
 
-    return this._callbackSend(data, key, options, callback) as unknown as Promise<ValueType>;
+    return this._callbackSend(data, key, options, callback);
   }
 
   // the promise only version of send
-  xsend(
+  xsend<ValueType>(
     data: StoreParams | SocketCallback,
     key: string,
     options?: StoreCommandOptions
-  ): Promise<unknown> {
+  ): Promise<ValueType> {
     return this._servers.doCmd(
       (c: MemcacheConnection) => this._send(c, data, options || {}),
       key
-    ) as Promise<unknown>;
+    ) as Promise<ValueType>;
   }
 
   // a convenient method to send a single line as a command to the server
@@ -249,7 +248,7 @@ export class MemcacheClient extends EventEmitter {
     options?: CommonCommandOption,
     callback?: ErrorFirstCallback
   ): Promise<Response> {
-    return this.send(
+    return this.send<Response>(
       (socket) => {
         let line = data;
         if (options?.noreply) {
@@ -260,7 +259,7 @@ export class MemcacheClient extends EventEmitter {
       key || "",
       options,
       callback
-    ) as unknown as Promise<Response>;
+    );
   }
 
   // "set" means "store this data".
@@ -346,7 +345,7 @@ export class MemcacheClient extends EventEmitter {
       key,
       options as CommonCommandOption,
       callback
-    ) as unknown as Promise<string[]>;
+    );
   }
 
   // incr key by value, fire & forget with options.noreply
@@ -361,7 +360,7 @@ export class MemcacheClient extends EventEmitter {
       key,
       options as StoreCommandOptions,
       callback
-    ) as unknown as Promise<string>;
+    );
   }
 
   // decrease key by value, fire & forget with options.noreply
@@ -376,7 +375,7 @@ export class MemcacheClient extends EventEmitter {
       key,
       options as StoreCommandOptions,
       callback
-    ) as unknown as Promise<string>;
+    );
   }
 
   // touch key with exp time, fire & forget with options.noreply
@@ -391,12 +390,12 @@ export class MemcacheClient extends EventEmitter {
       key,
       options as CommonCommandOption,
       callback
-    ) as unknown as Promise<string[]>;
+    );
   }
 
   // get version of server
   version(callback?: OperationCallback<Error, string[]>): Promise<string[]> {
-    return this.cmd(`version`, "", {}, callback) as unknown as Promise<string[]>;
+    return this.cmd(`version`, "", {}, callback);
   }
 
   // flush all keys from the server, optionally after a delay in seconds
@@ -672,6 +671,7 @@ export class MemcacheClient extends EventEmitter {
             serverKey,
             keys: serverKeys,
           });
+          return undefined;
         }
       })
     );
@@ -731,13 +731,13 @@ export class MemcacheClient extends EventEmitter {
   }
 
   // internal send that expects all params passed (even if they are undefined)
-  _callbackSend(
+  _callbackSend<ValueType>(
     data: StoreParams | SocketCallback,
     key: string,
     options?: Partial<CasCommandOptions>,
     callback?: ErrorFirstCallback
-  ): Promise<unknown> {
-    return nodeify(this.xsend(data, key, options), callback);
+  ): Promise<ValueType> {
+    return nodeify<ValueType>(this.xsend(data, key, options), callback);
   }
 
   _unpackValue(result: PackedData): number | string | Record<string, unknown> | Buffer {
