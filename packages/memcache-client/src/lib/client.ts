@@ -29,7 +29,7 @@ type StoreParams = string | number | Buffer | Record<string, unknown>;
 
 type CommonCommandOption = Readonly<{ noreply?: boolean; expectedResponses?: number }>;
 
-type StoreCommandOptions = CommonCommandOption & { ignoreNotStored?: boolean } & Readonly<{
+type StoreCommandOptions = CommonCommandOption & { ignoreNotStored?: boolean; ignoreExists?: boolean } & Readonly<{
   lifetime?: number;
   compress?: boolean;
 }>;
@@ -332,6 +332,9 @@ export class MemcacheClient extends EventEmitter {
     callback?: OperationCallback<Error, string[]>
   ): Promise<string[]> {
     assert(options?.casUniq, "Must provide options.casUniq for cas store command");
+    if (options.ignoreExists === undefined) {
+      options = { ...options, ignoreExists: this.options.ignoreExists };
+    }
     return this.store("cas", key, value, options, callback);
   }
 
@@ -700,6 +703,9 @@ export class MemcacheClient extends EventEmitter {
             if (err) {
               if (options.ignoreNotStored === true && err.message === "NOT_STORED") {
                 return resolve("ignore NOT_STORED");
+              }
+              if (options.ignoreExists === true && err.message === "EXISTS") {
+                return resolve("ignore EXISTS");
               }
               return reject(err);
             }
