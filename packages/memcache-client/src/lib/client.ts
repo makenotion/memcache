@@ -1,3 +1,4 @@
+/* eslint-disable max-params */
 import assert from "assert";
 import { Socket } from "net";
 
