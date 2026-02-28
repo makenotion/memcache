@@ -1,11 +1,7 @@
 import Net, { Socket } from "net";
 import Tls from "tls";
 import assert from "assert";
-import { optionalRequire } from "optional-require";
 
-const Promise = optionalRequire("bluebird", {
-  default: global.Promise,
-});
 import { MemcacheNode } from "./memcache-node";
 import { MemcacheParser, ParserPendingData } from "memcache-parser";
 import { MemcacheClient, MetaResult } from "./client";
