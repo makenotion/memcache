@@ -73,7 +73,7 @@ describe.only("MemcacheConnection", function () {
       } as unknown as MemcacheNode
     );
     x._shutdown("test");
-    expect(x.dequeueCommand()?.callback()).toBe(undefined);
+    expect(x.dequeueCommand()).toBeUndefined();
   });
 
   it("waitDangleSocket should do nothing if socket is falsy", () => {

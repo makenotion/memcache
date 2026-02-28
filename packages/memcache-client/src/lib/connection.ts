@@ -44,7 +44,7 @@ export class MemcacheConnection extends MemcacheParser {
   _cmdQueue: Array<QueuedCommandContext>;
   _id: number;
   _cmdTimeout: number;
-  _connectPromise: ConnectingPromise | undefined | string;
+  _connectPromise: ConnectingPromise | undefined;
   _status: Status;
   _reset = false;
   private _checkCmdTimer: ReturnType<typeof setTimeout> | undefined;
@@ -198,7 +198,7 @@ export class MemcacheConnection extends MemcacheParser {
   waitReady(): ConnectingPromise {
     if (this.isConnecting()) {
       assert(this._connectPromise, "MemcacheConnection not pending connect");
-      return this._connectPromise as ConnectingPromise;
+      return this._connectPromise;
     } else if (this.isReady()) {
       return Promise.resolve(this);
     } else {
@@ -214,7 +214,7 @@ export class MemcacheConnection extends MemcacheParser {
 
   dequeueCommand(): QueuedCommandContext | undefined {
     if (this.isShutdown()) {
-      return { callback: () => undefined } as unknown as QueuedCommandContext;
+      return undefined;
     }
     return this._cmdQueue.pop();
   }
