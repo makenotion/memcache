@@ -5,7 +5,7 @@ import assert from "assert";
 import { MemcacheNode } from "./memcache-node";
 import { MemcacheParser, ParserPendingData } from "memcache-parser";
 import { MemcacheClient, MetaResult } from "./client";
-import cmdActions from "./cmd-actions";
+import cmdActions, { CommandAction } from "./cmd-actions";
 import defaults from "./defaults";
 import {
   CommandContext,
@@ -208,7 +208,7 @@ export class MemcacheConnection extends MemcacheParser {
     return this._cmdQueue[this._cmdQueue.length - 1];
   }
 
-  processCmd(cmdTokens: string[]): number {
+  processCmd(cmdTokens: CommandAction[]): number {
     const action = cmdActions[cmdTokens[0]];
     return (this as any)[`cmdAction_${action}` as keyof MemcacheConnection](cmdTokens);
   }
