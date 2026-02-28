@@ -33,6 +33,10 @@ type StoreCommandOptions = CommonCommandOption & { ignoreNotStored?: boolean } &
   compress?: boolean;
 }>;
 
+type RetrieveCommands = "get" | "gets" | "mg" | "stats" | "version" | "verbosity" | "quit";
+type StoreCommands = "set" | "add" | "replace" | "append" | "prepend" | "cas" | "delete" | "incr" | "decr" | "touch" | "flush_all";
+type Command = RetrieveCommands | StoreCommands;
+
 // Exported for testing
 export type CasCommandOptions = CommonCommandOption &
   StoreCommandOptions &
@@ -413,18 +417,13 @@ export class MemcacheClient extends EventEmitter {
 
   // a generic API for issuing one of the store commands
   store(
-    cmd: string,
+    cmd: StoreCommands,
     key: string,
     value: StoreParams,
     options?: Partial<CasCommandOptions>,
     callback?: OperationCallback<Error, string[]>
   ): Promise<string[]> {
-    if (typeof options === "function") {
-      callback = options;
-      options = {};
-    } else if (options === undefined) {
-      options = {};
-    }
+    options = options || {};
 
     const lifetime =
       options.lifetime !== undefined ? options.lifetime : this.options.lifetime || 60;
@@ -525,22 +524,19 @@ export class MemcacheClient extends EventEmitter {
 
   // A generic API for issuing get or gets command
   retrieve<T>(
-    cmd: string,
+    cmd: RetrieveCommands,
     key: string[] | string,
     options?: StoreCommandOptions,
     callback?: ErrorFirstCallback,
     metaFlags?: string
   ): Promise<T> {
-    if (typeof options === "function") {
-      callback = options;
-      options = {};
-    }
+    options = options || {};
     return nodeify(this.xretrieve(cmd, key, options, metaFlags), callback) as Promise<T>;
   }
 
   // the promise only version of retrieve
   xretrieve(
-    cmd: string,
+    cmd: RetrieveCommands,
     key: string | string[],
     options?: StoreCommandOptions,
     metaFlags?: string
@@ -567,7 +563,7 @@ export class MemcacheClient extends EventEmitter {
 
   // retrieve one or more keys from a single server
   _xretrieverByServer(
-    cmd: string,
+    cmd: RetrieveCommands,
     key: string | string[],
     options?: StoreCommandOptions,
     metaFlags?: string
@@ -602,7 +598,7 @@ export class MemcacheClient extends EventEmitter {
   // the promise only version of retrieve that catches errors per-server
   // instead of failing fast, allowing partial results to be returned
   async xretrieveWithErrors<Keys extends string>(
-    cmd: string,
+    cmd: RetrieveCommands,
     keys: Keys[],
     options?: StoreCommandOptions
   ): Promise<MultiCasRetrievalWithErrorsResponse<unknown, Keys>> {
