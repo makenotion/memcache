@@ -17,7 +17,6 @@ import {
   CommandContext,
   SingleServerEntry,
   PackedData,
-  CompressorLibrary,
   MultiServerManager,
 } from "../types";
 import { MemcacheConnection } from "./connection";
@@ -179,7 +178,7 @@ export class MemcacheClient extends EventEmitter {
     this.options = options;
     this.socketID = 1;
     this._packer = new ValuePacker(
-      options.compressor || (Zstd as CompressorLibrary),
+      options.compressor || Zstd,
       options.assumeBuffer || false
     );
     this._logger = options.logger !== undefined ? options.logger : nullLogger;
