@@ -215,15 +215,10 @@ export class MemcacheClient extends EventEmitter {
   send<ValueType>(
     data: StoreParams | SocketCallback,
     key: string,
-    options?: CommonCommandOption | ErrorFirstCallback,
+    options?: CommonCommandOption,
     callback?: ErrorFirstCallback
   ): Promise<ValueType> {
-    if (typeof options === "function") {
-      callback = options;
-      options = {};
-    } else if (options === undefined) {
-      options = {};
-    }
+    options = options || {};
 
     return this._callbackSend(data, key, options, callback);
   }
@@ -266,15 +261,14 @@ export class MemcacheClient extends EventEmitter {
   set(
     key: string,
     value: StoreParams,
-    options?: StoreCommandOptions | OperationCallback<Error, string[]>,
+    options?: StoreCommandOptions,
     callback?: OperationCallback<Error, string[]>
   ): Promise<string[]> {
     options = options || {};
-    if ((options as StoreCommandOptions).ignoreNotStored === undefined) {
-      (options as StoreCommandOptions).ignoreNotStored = this.options.ignoreNotStored;
+    if (options.ignoreNotStored === undefined) {
+      options.ignoreNotStored = this.options.ignoreNotStored;
     }
-    // it's tricky to threat optional object as callback
-    return this.store("set", key, value, options as StoreCommandOptions, callback);
+    return this.store("set", key, value, options, callback);
   }
 
   // "add" means "store this data, but only if the server *doesn't* already
