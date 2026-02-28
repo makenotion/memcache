@@ -208,8 +208,8 @@ export class MemcacheConnection extends MemcacheParser {
     return this._cmdQueue[this._cmdQueue.length - 1];
   }
 
-  processCmd(cmdTokens: CommandAction[]): number {
-    const action = cmdActions[cmdTokens[0]];
+  processCmd(cmdTokens: string[]): number {
+    const action = cmdActions[cmdTokens[0] as CommandAction];
     return (this as any)[`cmdAction_${action}` as keyof MemcacheConnection](cmdTokens);
   }
 
