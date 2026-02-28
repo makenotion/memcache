@@ -3,9 +3,10 @@ import { MemcacheConnection, MemcacheClient, MemcacheNode } from "../..";
 describe.only("MemcacheConnection", function () {
   it("waitReady should resolve connect Promise status is CONNECTING", () => {
     const x = new MemcacheConnection({ socketID: 1 } as unknown as MemcacheClient);
-    x._connectPromise = "test";
+    const mockPromise = Promise.resolve("test");
+    x._connectPromise = mockPromise;
     x._status = "CONNECTING";
-    expect(x.waitReady()).toBe("test");
+    expect(x.waitReady()).toBe(mockPromise);
   });
 
   it("waitReady should resolve self if status is READY", (done) => {
