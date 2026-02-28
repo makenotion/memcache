@@ -19,19 +19,14 @@ import {
 /* eslint-disable no-bitwise,no-magic-numbers,max-params,no-unused-vars */
 /* eslint-disable no-console,camelcase,max-statements,no-var */
 
-export const Status = {
-  INIT: 1,
-  CONNECTING: 2,
-  READY: 3,
-  SHUTDOWN: 4,
-};
+export const Status = [
+  "INIT",
+  "CONNECTING",
+  "READY",
+  "SHUTDOWN",
+] as const;
 
-const StatusStr = {
-  [Status.INIT]: "INIT",
-  [Status.CONNECTING]: "CONNECTING",
-  [Status.READY]: "READY",
-  [Status.SHUTDOWN]: "SHUTDOWN",
-};
+export type Status = (typeof Status)[number];
 
 type QueueError = Error & { cmdTokens?: string[] };
 
@@ -50,7 +45,7 @@ export class MemcacheConnection extends MemcacheParser {
   _id: number;
   _cmdTimeout: number;
   _connectPromise: ConnectingPromise | undefined | string;
-  _status: number;
+  _status: Status;
   _reset = false;
   private _checkCmdTimer: ReturnType<typeof setTimeout> | undefined;
   private _cmdCheckInterval: number;
@@ -69,7 +64,7 @@ export class MemcacheConnection extends MemcacheParser {
     assert(this._cmdTimeout > 0, "cmdTimeout must be > 0");
     this._cmdCheckInterval = Math.min(250, Math.ceil(this._cmdTimeout / 4));
     this._cmdCheckInterval = Math.max(50, this._cmdCheckInterval);
-    this._status = Status.INIT;
+    this._status = "INIT";
   }
 
   waitDangleSocket(socket?: Socket): void {
@@ -113,7 +108,7 @@ export class MemcacheConnection extends MemcacheParser {
       socket = Net.createConnection({ host, port });
     }
     this._connectPromise = new Promise((resolve: ResolveCallback, reject: RejectCallback) => {
-      this._status = Status.CONNECTING;
+      this._status = "CONNECTING";
 
       const selfTimeout = () => {
         if (!((this.client?.options?.connectTimeout ?? 0) > 0)) return undefined;
@@ -153,7 +148,7 @@ export class MemcacheConnection extends MemcacheParser {
 
       socket.once("connect", () => {
         this.socket = socket;
-        this._status = Status.READY;
+        this._status = "READY";
         this._connectPromise = undefined;
         socket.removeAllListeners("error");
         this._setupConnection(socket);
@@ -170,19 +165,19 @@ export class MemcacheConnection extends MemcacheParser {
   }
 
   isReady(): boolean {
-    return this._status === Status.READY;
+    return this._status === "READY";
   }
 
   isConnecting(): boolean {
-    return this._status === Status.CONNECTING;
+    return this._status === "CONNECTING";
   }
 
   isShutdown(): boolean {
-    return this._status === Status.SHUTDOWN;
+    return this._status === "SHUTDOWN";
   }
 
   getStatusStr(): string {
-    return StatusStr[this._status] || "UNKNOWN";
+    return this._status || "UNKNOWN";
   }
 
   waitReady(): ConnectingPromise {
@@ -384,7 +379,7 @@ export class MemcacheConnection extends MemcacheParser {
     while ((cmd = this.dequeueCommand())) {
       cmd.callback(new Error(msg));
     }
-    this._status = Status.SHUTDOWN;
+    this._status = "SHUTDOWN";
     // reset connection
     this.node?.endConnection(this);
     if (this.socket) {
@@ -450,5 +445,3 @@ export class MemcacheConnection extends MemcacheParser {
     });
   }
 }
-
-(MemcacheConnection as unknown as Record<string, Record<string, number>>).Status = Status;
