@@ -33,7 +33,7 @@ type StoreCommandOptions = CommonCommandOption & { ignoreNotStored?: boolean } &
   compress?: boolean;
 }>;
 
-type RetrieveCommands = "get" | "gets" | "mg" | "stats" | "version" | "verbosity" | "quit";
+type RetrieveCommands = "get" | "gets" | "mg";
 type StoreCommands = "set" | "add" | "replace" | "append" | "prepend" | "cas";
 type Command = RetrieveCommands | StoreCommands;
 
