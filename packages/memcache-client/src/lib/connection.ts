@@ -43,17 +43,17 @@ export type DangleWaitResponse = {
   err?: Error;
 };
 export class MemcacheConnection extends MemcacheParser {
-  node;
+  node: MemcacheNode | undefined;
   client?: MemcacheClient;
   socket: Socket | undefined;
   _cmdQueue: Array<QueuedCommandContext>;
-  _id;
-  _cmdTimeout;
+  _id: number;
+  _cmdTimeout: number;
   _connectPromise: ConnectingPromise | undefined | string;
-  _status;
+  _status: number;
   _reset = false;
   private _checkCmdTimer: ReturnType<typeof setTimeout> | undefined;
-  private _cmdCheckInterval;
+  private _cmdCheckInterval: number;
 
   // TODO: still don't know which type client is
   constructor(client: MemcacheClient, node?: MemcacheNode) {
