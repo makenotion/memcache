@@ -74,14 +74,14 @@ describe("consistently hashed servers", function () {
         // 'a' = 97, 97 % 3 = 1 -> servers[1]
         // 'b' = 98, 98 % 3 = 2 -> servers[2]
         // 'c' = 99, 99 % 3 = 0 -> servers[0]
-        await x.set("aaa", "value-a");
-        await x.set("bbb", "value-b");
-        await x.set("ccc", "value-c");
+        await x.set({ key: "aaa", value: "value-a" });
+        await x.set({ key: "bbb", value: "value-b" });
+        await x.set({ key: "ccc", value: "value-c" });
 
         // Verify values can be retrieved
-        const resultA = await x.get<string>("aaa");
-        const resultB = await x.get<string>("bbb");
-        const resultC = await x.get<string>("ccc");
+        const resultA = await x.get<string>({ key: "aaa" });
+        const resultB = await x.get<string>({ key: "bbb" });
+        const resultC = await x.get<string>({ key: "ccc" });
 
         expect(resultA.value).toEqual("value-a");
         expect(resultB.value).toEqual("value-b");
@@ -138,11 +138,11 @@ describe("consistently hashed servers", function () {
         const testKey = "consistent-key";
 
         // Perform multiple operations on the same key
-        await x.set(testKey, "value1");
-        await x.get(testKey);
-        await x.set(testKey, "value2");
-        await x.get(testKey);
-        await x.set(testKey, "value3");
+        await x.set({ key: testKey, value: "value1" });
+        await x.get({ key: testKey });
+        await x.set({ key: testKey, value: "value2" });
+        await x.get({ key: testKey });
+        await x.set({ key: testKey, value: "value3" });
 
         // Verify all operations went to the same server
         const keyRouting = routingLog.get(testKey) || [];
@@ -208,16 +208,16 @@ describe("consistently hashed servers", function () {
 
       try {
         // Set values that route to different servers
-        await x.set("server0:key1", "value-0-1");
-        await x.set("server1:key1", "value-1-1");
-        await x.set("server2:key1", "value-2-1");
-        await x.set("server3:key1", "value-3-1");
+        await x.set({ key: "server0:key1", value: "value-0-1" });
+        await x.set({ key: "server1:key1", value: "value-1-1" });
+        await x.set({ key: "server2:key1", value: "value-2-1" });
+        await x.set({ key: "server3:key1", value: "value-3-1" });
 
         // Verify each key can be retrieved correctly
-        const result0 = await x.get<string>("server0:key1");
-        const result1 = await x.get<string>("server1:key1");
-        const result2 = await x.get<string>("server2:key1");
-        const result3 = await x.get<string>("server3:key1");
+        const result0 = await x.get<string>({ key: "server0:key1" });
+        const result1 = await x.get<string>({ key: "server1:key1" });
+        const result2 = await x.get<string>({ key: "server2:key1" });
+        const result3 = await x.get<string>({ key: "server3:key1" });
 
         expect(result0.value).toEqual("value-0-1");
         expect(result1.value).toEqual("value-1-1");
@@ -270,14 +270,14 @@ describe("consistently hashed servers", function () {
 
       try {
         // Set multiple values that should all go to server0
-        await x.set("server0:key1", "value1");
-        await x.set("server0:key2", "value2");
-        await x.set("server0:key3", "value3");
+        await x.set({ key: "server0:key1", value: "value1" });
+        await x.set({ key: "server0:key2", value: "value2" });
+        await x.set({ key: "server0:key3", value: "value3" });
 
         // Verify individual gets work
-        const r1 = await x.get<string>("server0:key1");
-        const r2 = await x.get<string>("server0:key2");
-        const r3 = await x.get<string>("server0:key3");
+        const r1 = await x.get<string>({ key: "server0:key1" });
+        const r2 = await x.get<string>({ key: "server0:key2" });
+        const r3 = await x.get<string>({ key: "server0:key3" });
 
         expect(r1.value).toEqual("value1");
         expect(r2.value).toEqual("value2");
@@ -316,12 +316,12 @@ describe("consistently hashed servers", function () {
       });
 
       try {
-        await x.set("server0:meta-key", "meta-value-0");
-        await x.set("server1:meta-key", "meta-value-1");
+        await x.set({ key: "server0:meta-key", value: "meta-value-0" });
+        await x.set({ key: "server1:meta-key", value: "meta-value-1" });
 
         // Verify individual mg works
-        const mg0 = await x.mg<string>("server0:meta-key");
-        const mg1 = await x.mg<string>("server1:meta-key");
+        const mg0 = await x.mg<string>({ key: "server0:meta-key" });
+        const mg1 = await x.mg<string>({ key: "server1:meta-key" });
 
         expect(mg0.value).toEqual("meta-value-0");
         expect(mg1.value).toEqual("meta-value-1");
@@ -367,13 +367,13 @@ describe("consistently hashed servers", function () {
 
       try {
         // First verify all servers are working
-        await x.set("server0:key", "value0");
-        await x.set("server1:key", "value1");
-        await x.set("server2:key", "value2");
+        await x.set({ key: "server0:key", value: "value0" });
+        await x.set({ key: "server1:key", value: "value1" });
+        await x.set({ key: "server2:key", value: "value2" });
 
-        const r0 = await x.get<string>("server0:key");
-        const r1 = await x.get<string>("server1:key");
-        const r2 = await x.get<string>("server2:key");
+        const r0 = await x.get<string>({ key: "server0:key" });
+        const r1 = await x.get<string>({ key: "server1:key" });
+        const r2 = await x.get<string>({ key: "server2:key" });
 
         expect(r0.value).toEqual("value0");
         expect(r1.value).toEqual("value1");
@@ -447,10 +447,10 @@ describe("consistently hashed servers", function () {
       const afterPingCalls: Array<{ server: string; error?: Error }> = [];
 
       try {
-        await x.versionAll({
+        await x.versionAll({ trackingCallbacks: {
           beforePing: (serverKey) => beforePingCalls.push(serverKey),
           afterPing: (serverKey, error) => afterPingCalls.push({ server: serverKey, error }),
-        });
+        }});
 
         expect(beforePingCalls.length).toBe(2);
         expect(afterPingCalls.length).toBe(2);
@@ -477,8 +477,8 @@ describe("consistently hashed servers", function () {
       });
 
       try {
-        await x.set("test-key", "test-value");
-        const result = await x.get<string>("test-key");
+        await x.set({ key: "test-key", value: "test-value" });
+        const result = await x.get<string>({ key: "test-key" });
         expect(result.value).toEqual("test-value");
       } finally {
         x.shutdown();
@@ -503,8 +503,8 @@ describe("consistently hashed servers", function () {
       });
 
       try {
-        await x.set("test-key", "test-value");
-        const result = await x.get<string>("test-key");
+        await x.set({ key: "test-key", value: "test-value" });
+        const result = await x.get<string>({ key: "test-key" });
         expect(result.value).toEqual("test-value");
 
         // Verify config was applied
@@ -560,10 +560,10 @@ describe("consistently hashed servers", function () {
 
       try {
         // Set value using client1 (goes to server 0)
-        await client1.set("isolated-key", "isolated-value");
+        await client1.set({ key: "isolated-key", value: "isolated-value" });
 
         // Verify client1 can get it
-        const result1 = await client1.get<string>("isolated-key");
+        const result1 = await client1.get<string>({ key: "isolated-key" });
         expect(result1.value).toEqual("isolated-value");
 
         // Verify client1 routed to server 0
@@ -571,7 +571,7 @@ describe("consistently hashed servers", function () {
         expect(client1Routing[0]).toEqual(serversUrls[0].server);
 
         // Client2 should not find it (looks on server 1)
-        const result2 = await client2.get<string>("isolated-key");
+        const result2 = await client2.get<string>({ key: "isolated-key" });
         expect(result2).toBeUndefined();
 
         // Verify client2 routed to server 1 (different server)

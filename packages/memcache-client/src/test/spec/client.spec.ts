@@ -76,7 +76,7 @@ describe("memcache client", function () {
   it.skip("should handle ECONNREFUSED", (done) => {
     const x = new MemcacheClient({ server: { server: "localhost:65000" } });
     let testError: Error;
-    x.cmd("stats")
+    x.cmd({ data: "stats" })
       .catch((err: Error) => (testError = err))
       .then(() => {
         expect(testError.message).toContain("ECONNREFUSED");
@@ -87,7 +87,7 @@ describe("memcache client", function () {
   it("should handle ENOTFOUND", (done) => {
     const x = new MemcacheClient({ server: { server: "badhost.baddomain.com:65000" } });
     let testError: Error;
-    x.cmd("stats")
+    x.cmd({ data: "stats" })
       .catch((err: Error) => (testError = err))
       .then(() => {
         expect(testError.message).toContain("ENOTFOUND");
@@ -98,7 +98,7 @@ describe("memcache client", function () {
   it("should handle connection timeout", (done) => {
     const x = new MemcacheClient({ server: { server: "192.168.255.1:8181" }, connectTimeout: 50 });
     let testError: Error;
-    x.cmd("stats")
+    x.cmd({ data: "stats" })
       .catch((err: Error) => (testError = err))
       .then(() => {
         expect(testError.message).toContain("connect timeout");
@@ -118,7 +118,7 @@ describe("memcache client", function () {
 
       let testError: Error;
       const start = Date.now();
-      x.cmd("stats")
+      x.cmd({ data: "stats" })
         .catch((err: Error) => (testError = err))
         .then(() => {
           expect(testError.message).toContain("connect timeout");
@@ -152,7 +152,7 @@ describe("memcache client", function () {
       });
 
       let testError: Error;
-      x.cmd("stats")
+      x.cmd({ data: "stats" })
         .catch((err: Error) => (testError = err))
         .then(() => {
           expect(testError.message).toContain("connect timeout");
@@ -174,7 +174,7 @@ describe("memcache client", function () {
     });
 
     let testError: Error;
-    x.cmd("stats")
+    x.cmd({ data: "stats" })
       .catch((err: Error) => (testError = err))
       .then(() => {
         expect(testError.message).toContain("connect timeout");
@@ -198,48 +198,48 @@ describe("memcache client", function () {
   it("should use callback on get and set", (done) => {
     const x = new MemcacheClient({ server });
     const key = `foo_${Date.now()}`;
-    x.set(key, "bar", {}, (err?: Error | null) => {
+    x.set({ key, value: "bar", callback: (err?: Error | null) => {
       expect(err).toBeNull();
-      x.get(key, {}, (gerr, data) => {
+      x.get({ key, callback: (gerr, data) => {
         expect(gerr).toBeNull();
         expect(data?.value).toEqual("bar");
         x.shutdown();
         done();
-      });
-    });
+      }});
+    }});
   });
 
   it("should use callback for send", (done) => {
     const x = new MemcacheClient({ server });
     const key = `foo_${Date.now()}`;
-    x.send(`set ${key} 0 0 5\r\nhello\r\n`, "", {}, (err, data) => {
+    x.send({ data: `set ${key} 0 0 5\r\nhello\r\n`, key: "", callback: (err, data) => {
       expect(err).toBeNull();
       expect(data).toEqual(["STORED"]);
-      x.send(`get ${key}\r\n`, "", {}, (gerr, v) => {
+      x.send({ data: `get ${key}\r\n`, key: "", callback: (gerr, v) => {
         expect(gerr).toBeNull();
         expect(v[key].value).toEqual("hello");
         x.shutdown();
         done();
-      });
-    });
+      }});
+    }});
   });
 
   it("should set value with custom lifetime", () => {
     const x = new MemcacheClient({ server });
     let testOptions: Partial<CasCommandOptions> = {};
-    x._callbackSend = <ValueType>(data: unknown, key: string, options?: Partial<CasCommandOptions>): Promise<ValueType> => {
+    x._callbackSend = <ValueType>({ data, key, options }: { data: unknown; key: string; options?: Partial<CasCommandOptions> }): Promise<ValueType> => {
       testOptions = options || {};
       return Promise.resolve();
     };
     const key = `foo_${Date.now()}`;
-    x.set(key, "bar", { lifetime: 500 });
+    x.set({ key, value: "bar", options: { lifetime: 500 } });
     expect(testOptions?.lifetime).toEqual(500);
   });
 
   it("should ignore NOT_STORED reply for set if client ignore option is true", (done) => {
     const x = new MemcacheClient({ server, ignoreNotStored: true });
     memcachedServer.asyncMode(true);
-    x.set("key", "data").finally(() => {
+    x.set({ key: "key", value: "data" }).finally(() => {
       memcachedServer.asyncMode(false);
       done();
     });
@@ -248,7 +248,7 @@ describe("memcache client", function () {
   it("should ignore NOT_STORED reply for set if command ignore option is true", (done) => {
     const x = new MemcacheClient({ server });
     memcachedServer.asyncMode(true);
-    x.set("key", "data", { ignoreNotStored: true }).finally(() => {
+    x.set({ key: "key", value: "data", options: { ignoreNotStored: true } }).finally(() => {
       memcachedServer.asyncMode(false);
       done();
     });
@@ -265,12 +265,12 @@ describe("memcache client", function () {
       let testErr: Error;
       // At least one command needs to be executed before calling a pause method as
       // any new connection can take 2ms to be added into server's array
-      x.set("foo", "bar")
+      x.set({ key: "foo", value: "bar" })
         .then(() => {
           // if this pause is called before the first set, it would break very bad
           singleServer.server.pause();
 
-          return x.set("key", "data");
+          return x.set({ key: "key", value: "data" });
         })
         .catch((err: Error) => (testErr = err))
         .then(() => {
@@ -290,7 +290,7 @@ describe("memcache client", function () {
 
     try {
       Socket.prototype.setKeepAlive = mockKeepAlive;
-      await x.set("foo", "bar");
+      await x.set({ key: "foo", value: "bar" });
     } finally {
       Socket.prototype.setKeepAlive = _setKeepAlive;
       x.shutdown();
@@ -306,7 +306,7 @@ describe("memcache client", function () {
 
     try {
       Socket.prototype.setKeepAlive = mockKeepAlive;
-      await x.set("foo", "bar");
+      await x.set({ key: "foo", value: "bar" });
     } finally {
       Socket.prototype.setKeepAlive = _setKeepAlive;
       x.shutdown();
@@ -322,7 +322,7 @@ describe("memcache client", function () {
 
     try {
       Socket.prototype.setKeepAlive = mockKeepAlive;
-      await x.set("foo", "bar");
+      await x.set({ key: "foo", value: "bar" });
     } finally {
       Socket.prototype.setKeepAlive = _setKeepAlive;
       x.shutdown();
@@ -338,7 +338,7 @@ describe("memcache client", function () {
 
     try {
       Socket.prototype.setNoDelay = mockNoDelay;
-      await x.set("foo", "bar");
+      await x.set({ key: "foo", value: "bar" });
     } finally {
       Socket.prototype.setNoDelay = _setNoDelay;
       x.shutdown();
@@ -354,7 +354,7 @@ describe("memcache client", function () {
 
     try {
       Socket.prototype.setNoDelay = mockNoDelay;
-      await x.set("foo", "bar");
+      await x.set({ key: "foo", value: "bar" });
     } finally {
       Socket.prototype.setNoDelay = _setNoDelay;
       x.shutdown();
@@ -397,39 +397,39 @@ describe("memcache client", function () {
 
       return (
         Promise.all([
-          x.set(key1, text1, { compress: true }),
-          x.set(key2, "dingle", { compress: false }),
-          x.set(key3, jsonData, { compress: true }),
-          x.set(key4, numValue),
-          x.set(key5, binValue, { compress: true }),
+          x.set({ key: key1, value: text1, options: { compress: true } }),
+          x.set({ key: key2, value: "dingle", options: { compress: false } }),
+          x.set({ key: key3, value: jsonData, options: { compress: true } }),
+          x.set({ key: key4, value: numValue }),
+          x.set({ key: key5, value: binValue, options: { compress: true } }),
         ])
           .then(() =>
-            Promise.all([x.get(key1), x.get(key2), x.get(key3), x.get(key4), x.get(key5)]).then(
+            Promise.all([x.get({ key: key1 }), x.get({ key: key2 }), x.get({ key: key3 }), x.get({ key: key4 }), x.get({ key: key5 })]).then(
               verifyArrayResults
             )
           )
           // TODO: solve this any with a conditional type
-          .then(() => x.get([key1, key2, key3, key4, key5]).then(verifyResults as any))
+          .then(() => x.get({ key: [key1, key2, key3, key4, key5] }).then(verifyResults as any))
           .then(() =>
             x
-              .send<MultiRetrievalResponse<string>>(
-                `gets ${key1} ${key2} ${key3} ${key4} ${key5}\r\n`,
-                ""
-              )
+              .send<MultiRetrievalResponse<string>>({
+                data: `gets ${key1} ${key2} ${key3} ${key4} ${key5}\r\n`,
+                key: ""
+              })
               .then(verifyResults)
           )
           .then(() =>
-            Promise.all([x.mg(key1), x.mg(key2), x.mg(key3), x.mg(key4), x.mg(key5)]).then(
+            Promise.all([x.mg({ key: key1 }), x.mg({ key: key2 }), x.mg({ key: key3 }), x.mg({ key: key4 }), x.mg({ key: key5 })]).then(
               verifyArrayResults
             )
           )
-          .then(() => x.mg([key1, key2, key3, key4, key5]).then(verifyResults as any))
+          .then(() => x.mg({ key: [key1, key2, key3, key4, key5] }).then(verifyResults as any))
           .then(() =>
             x
-              .send<MultiRetrievalResponse<string>>(
-                (socket) => socket?.write(`gets ${key1} ${key2} ${key3} ${key4} ${key5}\r\n`),
-                ""
-              )
+              .send<MultiRetrievalResponse<string>>({
+                data: (socket) => socket?.write(`gets ${key1} ${key2} ${key3} ${key4} ${key5}\r\n`),
+                key: ""
+              })
               .then(verifyResults)
           )
           .then(() =>
@@ -478,7 +478,7 @@ describe("memcache client", function () {
     const x = new MemcacheClient({ server });
     let testError: Error;
     return x
-      .set("foo", a)
+      .set({ key: "foo", value: a })
       .catch((err: Error) => (testError = err))
       .then(() => {
         expect(testError.message).toContain("circular structure");
@@ -493,8 +493,8 @@ describe("memcache client", function () {
     const objFlag = ValueFlags.TYPE_JSON;
     let testError: Error;
 
-    x.send(`set foo ${objFlag} 60 5\r\nabcde\r\n`, "")
-      .then(() => x.get("foo"))
+    x.send({ data: `set foo ${objFlag} 60 5\r\nabcde\r\n`, key: "" })
+      .then(() => x.get({ key: "foo" }))
       .catch((err: Error) => (testError = err))
       .then(() => {
         expect(testError?.message).toContain("Unexpected token 'a'");
@@ -507,8 +507,8 @@ describe("memcache client", function () {
     const objFlag = ValueFlags.TYPE_JSON | ValueFlags.COMPRESS;
     let testError: Error;
 
-    x.send(`set foo ${objFlag} 60 5\r\nabcde\r\n`, "")
-      .then(() => x.get("foo"))
+    x.send({ data: `set foo ${objFlag} 60 5\r\nabcde\r\n`, key: "" })
+      .then(() => x.get({ key: "foo" }))
       .catch((err) => (testError = err))
       .then(() => {
         expect(testError?.message).toContain("unsupported format");
@@ -527,7 +527,7 @@ describe("memcache client", function () {
     const x = new MemcacheClient({ server, compressor });
     const data = Buffer.allocUnsafe(200);
     let testError: Error;
-    x.set("foo", data, { compress: true })
+    x.set({ key: "foo", value: data, options: { compress: true } })
       .catch((err: Error) => (testError = err))
       .then(() => {
         expect(testError?.message).toEqual("compress test failure");
@@ -547,7 +547,7 @@ describe("memcache client", function () {
     }
     let testErr: Error;
     const x = new MemcacheClient({ server: { servers }, cmdTimeout: 20000 });
-    x.set("foo", "hello")
+    x.set({ key: "foo", value: "hello" })
       .catch((err: Error) => (testErr = err))
       .then(() => expect(testErr.message).toContain("ECONNREFUSED"))
       .then(() => expect(x._servers._servers).toHaveLength(1))
@@ -561,12 +561,12 @@ describe("memcache client", function () {
     const thumbsUp = Fs.readFileSync(Path.join(__dirname, "../data/thumbs-up.jpg"));
     const x = new MemcacheClient({ server });
 
-    Promise.all([x.set(key1, thumbsUp), x.set(key2, thumbsUp), x.set(key3, thumbsUp)])
+    Promise.all([x.set({ key: key1, value: thumbsUp }), x.set({ key: key2, value: thumbsUp }), x.set({ key: key3, value: thumbsUp })])
       .then((v: string[]) => {
         expect(v).toEqual([["STORED"], ["STORED"], ["STORED"]]);
       })
       .then(() =>
-        Promise.all([x.get(key1), x.get(key2), x.get(key3)]).then(
+        Promise.all([x.get({ key: key1 }), x.get({ key: key2 }), x.get({ key: key3 })]).then(
           (r: Array<Record<string, unknown>>) => {
             expect(r[0].value).toEqual(thumbsUp);
             expect(r[1].value).toEqual(thumbsUp);
@@ -588,12 +588,12 @@ describe("memcache client", function () {
       const thumbsUp = Fs.readFileSync(Path.join(__dirname, "../data/thumbs-up.jpg"));
       const x = new MemcacheClient({ server });
 
-      Promise.all([x.set(key1, thumbsUp), x.set(key2, thumbsUp), x.set(key3, thumbsUp)])
+      Promise.all([x.set({ key: key1, value: thumbsUp }), x.set({ key: key2, value: thumbsUp }), x.set({ key: key3, value: thumbsUp })])
         .then((v: string[]) => {
           expect(v).toEqual([["STORED"], ["STORED"], ["STORED"]]);
         })
         .then(() =>
-          Promise.all([x.mg(key1), x.mg(key2), x.mg(key3)]).then(
+          Promise.all([x.mg({ key: key1 }), x.mg({ key: key2 }), x.mg({ key: key3 })]).then(
             (r: Array<Record<string, unknown>>) => {
               expect(r[0].value).toEqual(thumbsUp);
               expect(r[1].value).toEqual(thumbsUp);
@@ -611,10 +611,10 @@ describe("memcache client", function () {
       let addErr: Error;
       const x = new MemcacheClient({ server });
       const key = `poem1-风柔日薄春犹早_${Date.now()}`;
-      Promise.try(() => x.add(key, poem1))
-        .then(() => x.mg(key))
+      Promise.try(() => x.add({ key, value: poem1 }))
+        .then(() => x.mg({ key }))
         .then((r: RetrievalCommandResponse<string>) => expect(r.value).toEqual(poem1))
-        .then(() => x.add(key, poem1))
+        .then(() => x.add({ key, value: poem1 }))
         .catch((err: Error) => (addErr = err))
         .then(() => expect(addErr.message).toEqual("NOT_STORED"))
         .finally(() => {
@@ -626,11 +626,11 @@ describe("memcache client", function () {
     const testReplace = (done: () => void, setCompress?: boolean, replaceCompress?: boolean) => {
       const x = new MemcacheClient({ server });
       const key = `poem_${Date.now()}`;
-      return Promise.try(() => x.set(key, poem2, { compress: setCompress }))
-        .then(() => x.mg(key))
+      return Promise.try(() => x.set({ key, value: poem2, options: { compress: setCompress } }))
+        .then(() => x.mg({ key }))
         .then((r: RetrievalCommandResponse<string>) => expect(r.value).toEqual(poem2))
-        .then(() => x.replace(key, poem3, { compress: replaceCompress }))
-        .then(() => x.mg(key))
+        .then(() => x.replace({ key, value: poem3, options: { compress: replaceCompress } }))
+        .then(() => x.mg({ key }))
         .then((r: RetrievalCommandResponse<string>) => expect(r.value).toEqual(poem3))
         .finally(() => {
           x.shutdown();
@@ -650,7 +650,7 @@ describe("memcache client", function () {
       const x = new MemcacheClient({ server });
       const key = `foo_${Date.now()}`;
       let testError: Error;
-      x.replace(key, "bar")
+      x.replace({ key, value: "bar" })
         .catch((err: Error) => (testError = err))
         .then(() => {
           expect(testError?.message).toEqual("NOT_STORED");
@@ -661,11 +661,11 @@ describe("memcache client", function () {
     it("should set an entry and then append to it", (done) => {
       const x = new MemcacheClient({ server });
       const key = `poem_${Date.now()}`;
-      Promise.try(() => x.set(key, poem2))
-        .then(() => x.get(key))
+      Promise.try(() => x.set({ key, value: poem2 }))
+        .then(() => x.get({ key }))
         .then((r: RetrievalCommandResponse<string>) => expect(r.value).toEqual(poem2))
-        .then(() => x.append(key, poem3))
-        .then(() => x.get(key))
+        .then(() => x.append({ key, value: poem3 }))
+        .then(() => x.get({ key }))
         .then((r: RetrievalCommandResponse<string>) => expect(r.value).toEqual(`${poem2}${poem3}`))
         .finally(() => {
           x.shutdown();
@@ -676,11 +676,11 @@ describe("memcache client", function () {
     it("should set an entry and then prepend to it", (done) => {
       const x = new MemcacheClient({ server });
       const key = `poem_${Date.now()}`;
-      Promise.try(() => x.set(key, poem4))
-        .then(() => x.get(key))
+      Promise.try(() => x.set({ key, value: poem4 }))
+        .then(() => x.get({ key }))
         .then((r: RetrievalCommandResponse<string>) => expect(r.value).toEqual(poem4))
-        .then(() => x.prepend(key, poem3))
-        .then(() => x.get(key))
+        .then(() => x.prepend({ key, value: poem3 }))
+        .then(() => x.get({ key }))
         .then((r: RetrievalCommandResponse<string>) => expect(r.value).toEqual(`${poem3}${poem4}`))
         .finally(() => {
           x.shutdown();
@@ -692,14 +692,14 @@ describe("memcache client", function () {
       const x = new MemcacheClient({ server });
       const key = `poem_${Date.now()}`;
 
-      await x.set(key, poem4);
-      const getCasResult = await x.mg<string>(key, { includeCasToken: true });
+      await x.set({ key, value: poem4 });
+      const getCasResult = await x.mg<string>({ key, options: { includeCasToken: true } });
 
       expect(getCasResult.value).toEqual(poem4);
       expect(getCasResult.casUniq).not.toBeNull();
 
-      await x.cas(key, poem5, { casUniq: getCasResult.casUniq!, compress: true });
-      const getResult = await x.mg<string>(key);
+      await x.cas({ key, value: poem5, options: { casUniq: getCasResult.casUniq!, compress: true } });
+      const getResult = await x.mg<string>({ key });
 
       expect(getResult.value).toEqual(poem5);
 
@@ -710,18 +710,18 @@ describe("memcache client", function () {
       const x = new MemcacheClient({ server });
       const key = `poem_${Date.now()}`;
 
-      const getMetaResult = await x.mg<string>(key, {
+      const getMetaResult = await x.mg<string>({ key, options: {
         vivifyOnMiss: 100,
-      });
+      }});
       console.log("getMetaResult", getMetaResult);
 
       expect(getMetaResult.value).toBeUndefined();
       // first request should win the right to recache, the second should not
       expect(getMetaResult.wonRecache).toBe(true);
 
-      const getMetaResult2 = await x.mg<string>(key, {
+      const getMetaResult2 = await x.mg<string>({ key, options: {
         vivifyOnMiss: 100,
-      });
+      }});
 
       expect(getMetaResult2.value).toBeUndefined();
       expect(getMetaResult2.wonRecache).toBe(false);
@@ -734,14 +734,14 @@ describe("memcache client", function () {
       const key = `poem_${Date.now()}`;
       let casError: Error | undefined;
 
-      await x.set(key, poem4);
-      const getCasResult = await x.mg<string>(key, { includeCasToken: true });
+      await x.set({ key, value: poem4 });
+      const getCasResult = await x.mg<string>({ key, options: { includeCasToken: true } });
       expect(getCasResult.value).toEqual(poem4);
       expect(getCasResult.casUniq).not.toBeNull();
       const casUniq = getCasResult.casUniq!;
 
       try {
-        await x.cas(key, poem3, { casUniq: casUniq + 500 });
+        await x.cas({ key, value: poem3, options: { casUniq: casUniq + 500 } });
       } catch (ex: unknown) {
         casError = ex as Error;
       }
@@ -753,10 +753,10 @@ describe("memcache client", function () {
     it("should incr and decr value", (done) => {
       const x = new MemcacheClient({ server });
       const key = `num_${Date.now()}`;
-      Promise.try(() => x.set(key, "12345"))
-        .then(() => x.incr(key, 5))
+      Promise.try(() => x.set({ key, value: "12345" }))
+        .then(() => x.incr({ key, value: 5 }))
         .then((v: RetrievalCommandResponse<string>) => expect(v).toEqual("12350"))
-        .then(() => x.decr(key, 12355))
+        .then(() => x.decr({ key, value: 12355 }))
         .then((v: string) => expect(v).toEqual("0"))
         .finally(() => {
           x.shutdown();
@@ -767,13 +767,13 @@ describe("memcache client", function () {
     it("should set and delete a key", (done) => {
       const x = new MemcacheClient({ server });
       const key = `num_${Date.now()}`;
-      Promise.try(() => x.set(key, "12345"))
+      Promise.try(() => x.set({ key, value: "12345" }))
         .then((r: string[]) => expect(r).toEqual(["STORED"]))
-        .then(() => x.mg(key))
+        .then(() => x.mg({ key }))
         .then((v: RetrievalCommandResponse<string>) => expect(v.value).toEqual("12345"))
-        .then(() => x.delete(key))
+        .then(() => x.delete({ key }))
         .then((r: string[]) => expect(r).toEqual(["DELETED"]))
-        .then(() => x.mg(key))
+        .then(() => x.mg({ key }))
         .then((v: undefined) => expect(v).toBeUndefined())
         .finally(() => {
           x.shutdown();
@@ -784,9 +784,9 @@ describe("memcache client", function () {
     it("should fire and forget if noreply is set", (done) => {
       const x = new MemcacheClient({ server });
       const key = `poem1_${Date.now()}`;
-      Promise.try(() => x.set(key, poem1, { noreply: true }))
+      Promise.try(() => x.set({ key, value: poem1, options: { noreply: true } }))
         .then((v?: string[]) => expect(v).toBeUndefined())
-        .then(() => x.mg(key))
+        .then(() => x.mg({ key }))
         .then((v: MetaRetrievalCommandResponse<string>) => expect(v.value).toEqual(poem1))
         .finally(() => {
           x.shutdown();
@@ -797,13 +797,13 @@ describe("memcache client", function () {
     it("should send cmd with fire and forget if noreply is set", (done) => {
       const x = new MemcacheClient({ server });
       const key = `foo_${Date.now()}`;
-      Promise.try(() => x.set(key, "1", { noreply: true }))
+      Promise.try(() => x.set({ key, value: "1", options: { noreply: true } }))
         .then((v?: string[]) => expect(v).toBeUndefined())
-        .then(() => x.mg(key))
+        .then(() => x.mg({ key }))
         .then((v: MetaRetrievalCommandResponse<string>) => expect(v.value).toEqual("1"))
-        .then(() => x.cmd(`incr ${key} 5`, "", { noreply: true }))
+        .then(() => x.cmd({ data: `incr ${key} 5`, key: "", options: { noreply: true } }))
         .then((v?: string[]) => expect(v).toBeUndefined())
-        .then(() => x.mg(key))
+        .then(() => x.mg({ key }))
         .then((v: MetaRetrievalCommandResponse<string>) => expect(v.value).toEqual("6"))
         .finally(() => {
           x.shutdown();
@@ -816,10 +816,10 @@ describe("memcache client", function () {
     let addErr: Error;
     const x = new MemcacheClient({ server });
     const key = `poem1-风柔日薄春犹早_${Date.now()}`;
-    Promise.try(() => x.add(key, poem1))
-      .then(() => x.get(key))
+    Promise.try(() => x.add({ key, value: poem1 }))
+      .then(() => x.get({ key }))
       .then((r: RetrievalCommandResponse<string>) => expect(r.value).toEqual(poem1))
-      .then(() => x.add(key, poem1))
+      .then(() => x.add({ key, value: poem1 }))
       .catch((err: Error) => (addErr = err))
       .then(() => expect(addErr.message).toEqual("NOT_STORED"))
       .finally(() => {
@@ -831,11 +831,11 @@ describe("memcache client", function () {
   const testReplace = (done: () => void, setCompress?: boolean, replaceCompress?: boolean) => {
     const x = new MemcacheClient({ server });
     const key = `poem_${Date.now()}`;
-    return Promise.try(() => x.set(key, poem2, { compress: setCompress }))
-      .then(() => x.get(key))
+    return Promise.try(() => x.set({ key, value: poem2, options: { compress: setCompress } }))
+      .then(() => x.get({ key }))
       .then((r: RetrievalCommandResponse<string>) => expect(r.value).toEqual(poem2))
-      .then(() => x.replace(key, poem3, { compress: replaceCompress }))
-      .then(() => x.get(key))
+      .then(() => x.replace({ key, value: poem3, options: { compress: replaceCompress } }))
+      .then(() => x.get({ key }))
       .then((r: RetrievalCommandResponse<string>) => expect(r.value).toEqual(poem3))
       .finally(() => {
         x.shutdown();
@@ -855,7 +855,7 @@ describe("memcache client", function () {
     const x = new MemcacheClient({ server });
     const key = `foo_${Date.now()}`;
     let testError: Error;
-    x.replace(key, "bar")
+    x.replace({ key, value: "bar" })
       .catch((err: Error) => (testError = err))
       .then(() => {
         expect(testError?.message).toEqual("NOT_STORED");
@@ -866,11 +866,11 @@ describe("memcache client", function () {
   it("should set an entry and then append to it", (done) => {
     const x = new MemcacheClient({ server });
     const key = `poem_${Date.now()}`;
-    Promise.try(() => x.set(key, poem2))
-      .then(() => x.get(key))
+    Promise.try(() => x.set({ key, value: poem2 }))
+      .then(() => x.get({ key }))
       .then((r: RetrievalCommandResponse<string>) => expect(r.value).toEqual(poem2))
-      .then(() => x.append(key, poem3))
-      .then(() => x.get(key))
+      .then(() => x.append({ key, value: poem3 }))
+      .then(() => x.get({ key }))
       .then((r: RetrievalCommandResponse<string>) => expect(r.value).toEqual(`${poem2}${poem3}`))
       .finally(() => {
         x.shutdown();
@@ -881,11 +881,11 @@ describe("memcache client", function () {
   it("should set an entry and then prepend to it", (done) => {
     const x = new MemcacheClient({ server });
     const key = `poem_${Date.now()}`;
-    Promise.try(() => x.set(key, poem4))
-      .then(() => x.get(key))
+    Promise.try(() => x.set({ key, value: poem4 }))
+      .then(() => x.get({ key }))
       .then((r: RetrievalCommandResponse<string>) => expect(r.value).toEqual(poem4))
-      .then(() => x.prepend(key, poem3))
-      .then(() => x.get(key))
+      .then(() => x.prepend({ key, value: poem3 }))
+      .then(() => x.get({ key }))
       .then((r: RetrievalCommandResponse<string>) => expect(r.value).toEqual(`${poem3}${poem4}`))
       .finally(() => {
         x.shutdown();
@@ -898,14 +898,14 @@ describe("memcache client", function () {
     const key = `poem_${Date.now()}`;
 
     try {
-      await x.set(key, poem4);
-      const getCasResult = await x.gets<string>(key);
+      await x.set({ key, value: poem4 });
+      const getCasResult = await x.gets<string>({ key });
 
       expect(getCasResult.value).toEqual(poem4);
       expect(getCasResult.casUniq).not.toBeNull();
 
-      await x.cas(key, poem5, { casUniq: getCasResult.casUniq, compress: true });
-      const getResult = await x.get<string>(key);
+      await x.cas({ key, value: poem5, options: { casUniq: getCasResult.casUniq, compress: true } });
+      const getResult = await x.get<string>({ key });
 
       expect(getResult.value).toEqual(poem5);
     } catch (ex) {
@@ -920,13 +920,13 @@ describe("memcache client", function () {
     const key = `poem_${Date.now()}`;
     let casError: Error | undefined;
 
-    await x.set(key, poem4);
-    const getCasResult = await x.gets(key);
+    await x.set({ key, value: poem4 });
+    const getCasResult = await x.gets({ key });
     expect(getCasResult.value).toEqual(poem4);
     expect(getCasResult.casUniq).not.toBeNull();
 
     try {
-      await x.cas(key, poem3, { casUniq: (getCasResult.casUniq as number) + 500 });
+      await x.cas({ key, value: poem3, options: { casUniq: (getCasResult.casUniq as number) + 500 } });
     } catch (ex: unknown) {
       casError = ex as Error;
     }
@@ -938,10 +938,10 @@ describe("memcache client", function () {
   it("should incr and decr value", (done) => {
     const x = new MemcacheClient({ server });
     const key = `num_${Date.now()}`;
-    Promise.try(() => x.set(key, "12345"))
-      .then(() => x.incr(key, 5))
+    Promise.try(() => x.set({ key, value: "12345" }))
+      .then(() => x.incr({ key, value: 5 }))
       .then((v: RetrievalCommandResponse<string>) => expect(v).toEqual("12350"))
-      .then(() => x.decr(key, 12355))
+      .then(() => x.decr({ key, value: 12355 }))
       .then((v: string) => expect(v).toEqual("0"))
       .finally(() => {
         x.shutdown();
@@ -952,13 +952,13 @@ describe("memcache client", function () {
   it("should set and delete a key", (done) => {
     const x = new MemcacheClient({ server });
     const key = `num_${Date.now()}`;
-    Promise.try(() => x.set(key, "12345"))
+    Promise.try(() => x.set({ key, value: "12345" }))
       .then((r: string[]) => expect(r).toEqual(["STORED"]))
-      .then(() => x.get(key))
+      .then(() => x.get({ key }))
       .then((v: RetrievalCommandResponse<string>) => expect(v.value).toEqual("12345"))
-      .then(() => x.delete(key))
+      .then(() => x.delete({ key }))
       .then((r: string[]) => expect(r).toEqual(["DELETED"]))
-      .then(() => x.get(key))
+      .then(() => x.get({ key }))
       .then((v: undefined) => expect(v).toBeUndefined())
       .finally(() => {
         x.shutdown();
@@ -968,7 +968,7 @@ describe("memcache client", function () {
 
   it("should receive stats", (done) => {
     const x = new MemcacheClient({ server });
-    Promise.try(() => x.cmd(`stats`))
+    Promise.try(() => x.cmd({ data: `stats` }))
       .then((r: StatsCommandResponse) => {
         const stat = r.STAT;
         expect(stat).not.toBeNull();
@@ -984,9 +984,9 @@ describe("memcache client", function () {
   it("should fire and forget if noreply is set", (done) => {
     const x = new MemcacheClient({ server });
     const key = `poem1_${Date.now()}`;
-    Promise.try(() => x.set(key, poem1, { noreply: true }))
+    Promise.try(() => x.set({ key, value: poem1, options: { noreply: true } }))
       .then((v?: string[]) => expect(v).toBeUndefined())
-      .then(() => x.get(key))
+      .then(() => x.get({ key }))
       .then((v: RetrievalCommandResponse<string>) => expect(v.value).toEqual(poem1))
       .finally(() => {
         x.shutdown();
@@ -997,13 +997,13 @@ describe("memcache client", function () {
   it("should send cmd with fire and forget if noreply is set", (done) => {
     const x = new MemcacheClient({ server });
     const key = `foo_${Date.now()}`;
-    Promise.try(() => x.set(key, "1", { noreply: true }))
+    Promise.try(() => x.set({ key, value: "1", options: { noreply: true } }))
       .then((v?: string[]) => expect(v).toBeUndefined())
-      .then(() => x.get(key))
+      .then(() => x.get({ key }))
       .then((v: RetrievalCommandResponse<string>) => expect(v.value).toEqual("1"))
-      .then(() => x.cmd(`incr ${key} 5`, "", { noreply: true }))
+      .then(() => x.cmd({ data: `incr ${key} 5`, key: "", options: { noreply: true } }))
       .then((v?: string[]) => expect(v).toBeUndefined())
-      .then(() => x.get(key))
+      .then(() => x.get({ key }))
       .then((v: RetrievalCommandResponse<string>) => expect(v.value).toEqual("6"))
       .finally(() => {
         x.shutdown();
@@ -1014,9 +1014,9 @@ describe("memcache client", function () {
   it("should update exptime with touch", (done) => {
     const x = new MemcacheClient({ server });
     const key = `poem1_${Date.now()}`;
-    Promise.try(() => x.set(key, poem1, { noreply: true }))
+    Promise.try(() => x.set({ key, value: poem1, options: { noreply: true } }))
       .then((v?: string[]) => expect(v).toBeUndefined())
-      .then(() => x.touch(key, "500"))
+      .then(() => x.touch({ key, exptime: "500" }))
       .then((r: string[]) => expect(r).toEqual(["TOUCHED"]))
       .finally(() => {
         x.shutdown();
@@ -1044,12 +1044,12 @@ describe("memcache client", function () {
     }
     let firstConnId = "0";
     const x = new MemcacheClient({ server });
-    x.cmd<StatsCommandResponse>("stats")
+    x.cmd<StatsCommandResponse>({ data: "stats" })
       .then((v) => {
         firstConnId = v.STAT[2][1];
         x._servers._getNode("").connections[0].socket?.emit("error", new Error("ECONNRESET"));
       })
-      .then(() => x.cmd<StatsCommandResponse>("stats"))
+      .then(() => x.cmd<StatsCommandResponse>({ data: "stats" }))
       .then((v) => {
         expect(firstConnId).not.toBe(0);
         expect(firstConnId).not.toBe(v.STAT[2][1]);
@@ -1067,12 +1067,12 @@ describe("memcache client", function () {
     }
     let firstConnId = "0";
     const x = new MemcacheClient({ server });
-    x.cmd<StatsCommandResponse>("stats")
+    x.cmd<StatsCommandResponse>({ data: "stats" })
       .then((v) => {
         firstConnId = v.STAT[2][1];
         x._servers._getNode("").connections[0].socket?.emit("timeout");
       })
-      .then(() => x.cmd<StatsCommandResponse>("stats"))
+      .then(() => x.cmd<StatsCommandResponse>({ data: "stats" }))
       .then((v) => {
         expect(firstConnId).not.toBe(0);
         expect(firstConnId).not.toBe(v.STAT[2][1]);
@@ -1085,19 +1085,19 @@ describe("memcache client", function () {
       let firstConnId = "0";
       let timeoutError: Error;
       const x = new MemcacheClient({ server: { server: singleServer.serverUrl }, cmdTimeout: 100 });
-      x.cmd<StatsCommandResponse>("stats")
+      x.cmd<StatsCommandResponse>({ data: "stats" })
         .then((v) => {
           firstConnId = v.STAT[2][1];
           singleServer.server.pause();
         })
-        .then(() => Promise.all([x.cmd("stats"), x.get("foo"), x.set("test", "data")]))
+        .then(() => Promise.all([x.cmd({ data: "stats" }), x.get({ key: "foo" }), x.set({ key: "test", value: "data" })]))
         .catch((err: Error) => (timeoutError = err))
         .then(async () => {
           expect(timeoutError).not.toBeNull();
           expect(timeoutError?.message).toEqual("Command timeout");
           singleServer.server.unpause();
 
-          return x.cmd<StatsCommandResponse>("stats");
+          return x.cmd<StatsCommandResponse>({ data: "stats" });
         })
         .then((v) => {
           expect(x._servers._getNode("").connections[0]._cmdTimeout).toEqual(100);
@@ -1122,13 +1122,13 @@ describe("memcache client", function () {
     memcachedServer.shutdown();
     const x = new MemcacheClient({ server });
     let testErr: Error;
-    x.set("test", "hello")
+    x.set({ key: "test", value: "hello" })
       .catch((err: Error) => (testErr = err))
       //.then(() => expect(testErr.message).toContain("ECONNREFUSED"))
       .then(() => restartMemcachedServer(port))
-      .then(() => x.set("test", "hello"))
+      .then(() => x.set({ key: "test", value: "hello" }))
       .then(() =>
-        x.get<string>("test").then((r) => {
+        x.get<string>({ key: "test" }).then((r) => {
           expect(r.value).toEqual("hello");
           done();
         })

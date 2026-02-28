@@ -51,7 +51,7 @@ describe("memcache TLS client", function () {
       .catch(done);
     const x = new MemcacheClient({ server: { server: "localhost:65000" }, tls: {} });
     let testError: Error;
-    x.cmd("stats")
+    x.cmd({ data: "stats" })
       .catch((err: Error) => (testError = err))
       .then(() => {
         expect(testError.message).toContain("ECONNREFUSED");
@@ -62,7 +62,7 @@ describe("memcache TLS client", function () {
   it("TLS handles ENOTFOUND", (done) => {
     const x = new MemcacheClient({ server: { server: "badhost.baddomain.com:65000" }, tls: {} });
     let testError: Error;
-    x.cmd("stats")
+    x.cmd({ data: "stats" })
       .catch((err: Error) => (testError = err))
       .then(() => {
         expect(testError.message).toContain("ENOTFOUND");
@@ -86,9 +86,9 @@ describe("memcache TLS client", function () {
           expect(v[0]).toEqual("VERSION");
           expect(v[1]).not.toBe("");
         })
-        .then(() => c.set("key", text1))
+        .then(() => c.set({ key: "key", value: text1 }))
         .then(() =>
-          c.get<string>("key").then((r) => {
+          c.get<string>({ key: "key" }).then((r) => {
             expect(r.value).toEqual(text1);
             done();
           })
@@ -114,9 +114,9 @@ describe("memcache TLS client", function () {
           expect(v[0]).toEqual("VERSION");
           expect(v[1]).not.toBe("");
         })
-        .then(() => c.set("key", text2))
+        .then(() => c.set({ key: "key", value: text2 }))
         .then(() =>
-          c.get<string>("key").then((r) => {
+          c.get<string>({ key: "key" }).then((r) => {
             expect(r.value).toEqual(text2);
             done();
           })

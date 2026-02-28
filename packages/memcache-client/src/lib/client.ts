@@ -22,36 +22,36 @@ import { MemcacheConnection } from "./connection";
 import { DefaultLogger } from "memcache-parser";
 import ConsistentlyHashedServers from "./consistently-hashed-servers";
 
-type StoreParams = string | number | Buffer | Record<string, unknown>;
+type StoreParams = string | number | Buffer | Record<string, unknown>
 
-type CommonCommandOption = Readonly<{ noreply?: boolean; expectedResponses?: number }>;
+type CommonCommandOption = Readonly<{ noreply?: boolean; expectedResponses?: number }>
 
 type StoreCommandOptions = CommonCommandOption & { ignoreNotStored?: boolean } & Readonly<{
-  lifetime?: number;
-  compress?: boolean;
-}>;
+  lifetime?: number
+  compress?: boolean
+}>
 
-type RetrieveCommands = "get" | "gets" | "mg";
-type StoreCommands = "set" | "add" | "replace" | "append" | "prepend" | "cas";
+type RetrieveCommands = "get" | "gets" | "mg"
+type StoreCommands = "set" | "add" | "replace" | "append" | "prepend" | "cas"
 
 // Exported for testing
 export type CasCommandOptions = CommonCommandOption &
   StoreCommandOptions &
-  Readonly<{ casUniq: number | string }>;
+  Readonly<{ casUniq: number | string }>
 
 type MetaGetOptions = StoreCommandOptions & {
   /** interpret key as base64 encoded binary value */
-  keyAsBase64?: boolean;
+  keyAsBase64?: boolean
   /** include the cas token in the response */
-  includeCasToken?: boolean;
+  includeCasToken?: boolean
   /** return whether item has been hit before as a 0 or 1 */
-  includeHasBeenHit?: boolean;
+  includeHasBeenHit?: boolean
   /** return time since item was last accessed in seconds */
-  includeLastAccessed?: boolean;
+  includeLastAccessed?: boolean
   /** return item TTL remaining in seconds (-1 for unlimited) */
-  includeRemainingTtl?: boolean;
+  includeRemainingTtl?: boolean
   /** don't bump the item in the LRU */
-  dontBumpLru?: boolean;
+  dontBumpLru?: boolean
   /** vivify on miss, takes TTL as a argument
    * Used to help with so called "dog piling" problems with recaching of popular
    * items. If supplied, and metaget does not find the item in cache, it will
@@ -64,23 +64,23 @@ type MetaGetOptions = StoreCommandOptions & {
    * Further requests will see a 'Z' flag to indicate that another client has
    * already received the win flag.
    */
-  vivifyOnMiss?: number;
+  vivifyOnMiss?: number
   /** Similar to "touch" and "gat" commands, updates the remaining TTL of an item if hit. */
-  updateTtlOnHit?: number;
-};
+  updateTtlOnHit?: number
+}
 
 /**
  * Results specific to meta protocol
  */
 export type MetaResult = {
   /** return whether item has been hit before the current request */
-  hasBeenHit?: boolean;
+  hasBeenHit?: boolean
   /** return time since item was last accessed in seconds */
-  secondsSinceLastAccess?: number;
+  secondsSinceLastAccess?: number
   /** opaque value - passing in this will return the same value, can be used to identify pipelined requests */
-  opaqueValue?: string;
+  opaqueValue?: string
   /** remaining TTL in seconds (-1 for unlimited) */
-  remainingTtl?: number;
+  remainingTtl?: number
   /**
    * if vivifyOnMiss was passed and we miss, indicates whether the current request won the right to recache the item
    * if we win, caller should do the underlying IO and store the result
@@ -88,84 +88,107 @@ export type MetaResult = {
    * NOTE: even if vivifyOnMiss was not passed on this request, if someone else passed it and won the right to recache,
    * this will be set to false explicitly with an undefined value in the response
    */
-  wonRecache?: boolean;
+  wonRecache?: boolean
   /** staleness can be set via meta delete as a way to keep the value there but encourage callers to refresh it */
-  stale?: boolean;
+  stale?: boolean
   /** return flags */
-  flags?: number;
+  flags?: number
   /** return key */
-  key?: string;
+  key?: string
   /** cas token returned if includeCasToken was passed */
-  casUniq?: string;
-};
+  casUniq?: string
+}
 
-type SocketCallback = (socket?: Socket) => void;
+type SocketCallback = (socket?: Socket) => void
 
-type OperationCallback<Data> = (error?: Error | null, data?: Data) => void;
+type OperationCallback<Data> = (error?: Error | null, data?: Data) => void
+
+// Shared arg types for methods with common signatures
+type StoreMethodArgs = {
+  key: string
+  value: StoreParams
+  options?: StoreCommandOptions
+  callback?: OperationCallback<string[]>
+}
+
+type IncrDecrArgs = {
+  key: string
+  value: number
+  options?: StoreCommandOptions
+  callback?: OperationCallback<string>
+}
+
+type XRetrieveArgs = {
+  cmd: RetrieveCommands
+  key: string[] | string
+  options?: StoreCommandOptions
+  metaFlags?: string
+}
+
 export type RetrievalCommandResponse<ValueType> = {
-  tokens: string[];
-  casUniq?: number | string;
-  value: ValueType;
-};
+  tokens: string[]
+  casUniq?: number | string
+  value: ValueType
+}
 
 export type MetaRetrievalCommandResponse<ValueType> = MetaResult & {
-  value: ValueType;
-};
+  value: ValueType
+}
 
 export type CasRetrievalCommandResponse<Type> = RetrievalCommandResponse<Type> & {
-  casUniq: string | number;
-};
-export type StatsCommandResponse = Record<"STAT", Array<Array<string>>>;
+  casUniq: string | number
+}
+export type StatsCommandResponse = Record<"STAT", Array<Array<string>>>
 
 export type MultiRetrievalResponse<ValueType = unknown> = Record<
   string,
   RetrievalCommandResponse<ValueType>
->;
+>
 
 export type MultiMetaRetrievalResponse<ValueType = unknown> = Record<
   string,
   MetaRetrievalCommandResponse<ValueType>
->;
+>
 
 export type MultiCasRetrievalResponse<ValueType = unknown> = Record<
   string,
   CasRetrievalCommandResponse<ValueType>
->;
+>
 
 export interface MultiGetError<Keys extends string = string> {
-  error: Error;
-  serverKey: string;
-  keys: Keys[];
+  error: Error
+  serverKey: string
+  keys: Keys[]
 }
 
 export interface MultiRetrievalWithErrorsResponse<ValueType = unknown, Keys extends string = string> {
-  result: MultiRetrievalResponse<ValueType>;
-  errors: MultiGetError<Keys>[];
+  result: MultiRetrievalResponse<ValueType>
+  errors: MultiGetError<Keys>[]
 }
 
 export interface MultiCasRetrievalWithErrorsResponse<ValueType = unknown, Keys extends string = string> {
-  result: MultiCasRetrievalResponse<ValueType>;
-  errors: MultiGetError<Keys>[];
+  result: MultiCasRetrievalResponse<ValueType>
+  errors: MultiGetError<Keys>[]
 }
 
 type MultiCasRetrieval<ValueType> = ValueType extends MultiCasRetrievalResponse
   ? ValueType
-  : CasRetrievalCommandResponse<ValueType>;
+  : CasRetrievalCommandResponse<ValueType>
 
 type MultiRetrieval<ValueType> = ValueType extends MultiRetrievalResponse
   ? ValueType
-  : RetrievalCommandResponse<ValueType>;
+  : RetrievalCommandResponse<ValueType>
 
 type MultiMetaRetrieval<ValueType> = ValueType extends MultiMetaRetrievalResponse
   ? ValueType
-  : MetaRetrievalCommandResponse<ValueType>;
+  : MetaRetrievalCommandResponse<ValueType>
 
 export class MemcacheClient extends EventEmitter {
-  options: MemcacheClientOptions;
-  socketID: number;
-  _logger: DefaultLogger;
-  _servers: MultiServerManager;
-  private _packer: ValuePacker;
+  options: MemcacheClientOptions
+  socketID: number
+  _logger: DefaultLogger
+  _servers: MultiServerManager
+  private _packer: ValuePacker
 
   constructor(options: MemcacheClientOptions) {
     super();
@@ -209,21 +232,21 @@ export class MemcacheClient extends EventEmitter {
   // doesn't apply if you send a command like get/gets/stats, which don't
   // have the noreply option.
   //
-  send<ValueType>(
-    data: StoreParams | SocketCallback,
-    key: string,
-    options: CommonCommandOption = {},
+  send<ValueType>({ data, key, options = {}, callback }: {
+    data: StoreParams | SocketCallback
+    key: string
+    options?: CommonCommandOption
     callback?: ErrorFirstCallback
-  ): Promise<ValueType> {
-    return this._callbackSend(data, key, options, callback);
+  }): Promise<ValueType> {
+    return this._callbackSend({ data, key, options, callback });
   }
 
   // the promise only version of send
-  xsend<ValueType>(
-    data: StoreParams | SocketCallback,
-    key: string,
-    options: StoreCommandOptions = {}
-  ): Promise<ValueType> {
+  xsend<ValueType>({ data, key, options = {} }: {
+    data: StoreParams | SocketCallback
+    key: string
+    options?: StoreCommandOptions
+  }): Promise<ValueType> {
     return this._servers.doCmd(
       (c: MemcacheConnection) => this._send(c, data, options),
       key
@@ -232,80 +255,54 @@ export class MemcacheClient extends EventEmitter {
 
   // a convenient method to send a single line as a command to the server
   // with \r\n appended for you automatically
-  cmd<Response>(
-    data: string,
-    key?: string,
-    options?: CommonCommandOption,
+  cmd<Response>({ data, key, options, callback }: {
+    data: string
+    key?: string
+    options?: CommonCommandOption
     callback?: ErrorFirstCallback
-  ): Promise<Response> {
-    return this.send<Response>(
-      (socket) => {
+  }): Promise<Response> {
+    return this.send<Response>({
+      data: (socket) => {
         let line = data;
         if (options?.noreply) {
           line += " noreply";
         }
         socket?.write(`${line}\r\n`);
       },
-      key || "",
+      key: key || "",
       options,
-      callback
-    );
+      callback,
+    });
   }
 
   // "set" means "store this data".
-  set(
-    key: string,
-    value: StoreParams,
-    options?: StoreCommandOptions,
-    callback?: OperationCallback<string[]>
-  ): Promise<string[]> {
-    options = options || {};
+  set({ key, value, options = {}, callback }: StoreMethodArgs): Promise<string[]> {
     if (options.ignoreNotStored === undefined) {
       options.ignoreNotStored = this.options.ignoreNotStored;
     }
-    return this.store("set", key, value, options, callback);
+    return this.store({ cmd: "set", key, value, options, callback });
   }
 
   // "add" means "store this data, but only if the server *doesn't* already
   // hold data for this key".
-  add(
-    key: string,
-    value: StoreParams,
-    options?: StoreCommandOptions,
-    callback?: OperationCallback<string[]>
-  ): Promise<string[]> {
-    return this.store("add", key, value, options, callback);
+  add({ key, value, options, callback }: StoreMethodArgs): Promise<string[]> {
+    return this.store({ cmd: "add", key, value, options, callback });
   }
 
   // "replace" means "store this data, but only if the server *does*
   // already hold data for this key".
-  replace(
-    key: string,
-    value: StoreParams,
-    options?: StoreCommandOptions,
-    callback?: OperationCallback<string[]>
-  ): Promise<string[]> {
-    return this.store("replace", key, value, options, callback);
+  replace({ key, value, options, callback }: StoreMethodArgs): Promise<string[]> {
+    return this.store({ cmd: "replace", key, value, options, callback });
   }
 
   // "append" means "add this data to an existing key after existing data".
-  append(
-    key: string,
-    value: StoreParams,
-    options?: StoreCommandOptions,
-    callback?: OperationCallback<string[]>
-  ): Promise<string[]> {
-    return this.store("append", key, value, options, callback);
+  append({ key, value, options, callback }: StoreMethodArgs): Promise<string[]> {
+    return this.store({ cmd: "append", key, value, options, callback });
   }
 
   // "prepend" means "add this data to an existing key before existing data".
-  prepend(
-    key: string,
-    value: StoreParams,
-    options?: StoreCommandOptions,
-    callback?: OperationCallback<string[]>
-  ): Promise<string[]> {
-    return this.store("prepend", key, value, options, callback);
+  prepend({ key, value, options, callback }: StoreMethodArgs): Promise<string[]> {
+    return this.store({ cmd: "prepend", key, value, options, callback });
   }
 
   // "cas" is a check and set operation which means "store this data but
@@ -313,84 +310,70 @@ export class MemcacheClient extends EventEmitter {
   //
   // cas unique must be passed in options.casUniq
   //
-  cas(
-    key: string,
-    value: StoreParams,
-    options: CasCommandOptions,
-    callback?: OperationCallback<string[]>
-  ): Promise<string[]> {
+  cas({ key, value, options, callback }: StoreMethodArgs & { options: CasCommandOptions }): Promise<string[]> {
     assert(options?.casUniq, "Must provide options.casUniq for cas store command");
-    return this.store("cas", key, value, options, callback);
+    return this.store({ cmd: "cas", key, value, options, callback });
   }
 
   // delete key, fire & forget with options.noreply
-  delete(
-    key: string,
-    options?: CommonCommandOption,
+  delete({ key, options, callback }: {
+    key: string
+    options?: CommonCommandOption
     callback?: OperationCallback<string[]>
-  ): Promise<string[]> {
-    return this.cmd(`delete ${key}`, key, options, callback);
+  }): Promise<string[]> {
+    return this.cmd({ data: `delete ${key}`, key, options, callback });
   }
 
   // incr key by value, fire & forget with options.noreply
-  incr(
-    key: string,
-    value: number,
-    options?: StoreCommandOptions,
-    callback?: OperationCallback<string>
-  ): Promise<string> {
-    return this.cmd(`incr ${key} ${value}`, key, options, callback);
+  incr({ key, value, options, callback }: IncrDecrArgs): Promise<string> {
+    return this.cmd({ data: `incr ${key} ${value}`, key, options, callback });
   }
 
   // decrease key by value, fire & forget with options.noreply
-  decr(
-    key: string,
-    value: number,
-    options?: StoreCommandOptions,
-    callback?: OperationCallback<string>
-  ): Promise<string> {
-    return this.cmd(`decr ${key} ${value}`, key, options, callback);
+  decr({ key, value, options, callback }: IncrDecrArgs): Promise<string> {
+    return this.cmd({ data: `decr ${key} ${value}`, key, options, callback });
   }
 
   // touch key with exp time, fire & forget with options.noreply
-  touch(
-    key: string,
-    exptime: string | number,
-    options?: CommonCommandOption,
+  touch({ key, exptime, options, callback }: {
+    key: string
+    exptime: string | number
+    options?: CommonCommandOption
     callback?: OperationCallback<string[]>
-  ): Promise<string[]> {
-    return this.cmd(`touch ${key} ${exptime}`, key, options, callback);
+  }): Promise<string[]> {
+    return this.cmd({ data: `touch ${key} ${exptime}`, key, options, callback });
   }
 
   // get version of server
-  version(callback?: OperationCallback<string[]>): Promise<string[]> {
-    return this.cmd(`version`, "", {}, callback);
+  version({ callback }: { callback?: OperationCallback<string[]> } = {}): Promise<string[]> {
+    return this.cmd({ data: `version`, key: "", callback });
   }
 
   // flush all keys from the server, optionally after a delay in seconds
-  flush(
-    exptime?: number,
-    options?: CommonCommandOption,
+  flush({ exptime, options, callback }: {
+    exptime?: number
+    options?: CommonCommandOption
     callback?: OperationCallback<string[]>
-  ): Promise<string[]> {
+  } = {}): Promise<string[]> {
     const cmd = exptime !== undefined ? `flush_all ${exptime}` : "flush_all";
-    return this.cmd(cmd, "", options, callback) as Promise<string[]>;
+    return this.cmd({ data: cmd, key: "", options, callback }) as Promise<string[]>;
   }
 
-  async versionAll(
+  async versionAll({ trackingCallbacks, callback }: {
     trackingCallbacks?: {
-      beforePing?: (serverKey: string) => void;
-      afterPing?: (serverKey: string, error?: Error) => void;
-    },
+      beforePing?: (serverKey: string) => void
+      afterPing?: (serverKey: string, error?: Error) => void
+    }
     callback?: OperationCallback<
-    Record<string, {version?: string[] | null, error?: Error}>
-    >): Promise<{
-    values: Record<string, {version?: string[] | null, error?: Error}>
+      Record<string, { version?: string[] | null, error?: Error }>
+    >
+  } = {}): Promise<{
+    values: Record<string, { version?: string[] | null, error?: Error }>
   }> {
     const versionObjects = await Promise.all(this._servers._servers.map(async (server: SingleServerEntry) => {
       trackingCallbacks?.beforePing?.(server.server);
       try {
-        const response = await this.cmd(`version`, server.server, {}, callback) as string[];
+        const response = await this.cmd({ data: `version`, key: server.server, callback }) as string[];
         trackingCallbacks?.afterPing?.(server.server);
         return { server: server.server, value: { version: response } };
       } catch (error) {
@@ -405,13 +388,13 @@ export class MemcacheClient extends EventEmitter {
   }
 
   // a generic API for issuing one of the store commands
-  store(
-    cmd: StoreCommands,
-    key: string,
-    value: StoreParams,
-    options: Partial<CasCommandOptions> = {},
+  store({ cmd, key, value, options = {}, callback }: {
+    cmd: StoreCommands
+    key: string
+    value: StoreParams
+    options?: Partial<CasCommandOptions>
     callback?: OperationCallback<string[]>
-  ): Promise<string[]> {
+  }): Promise<string[]> {
     const lifetime =
       options.lifetime !== undefined ? options.lifetime : this.options.lifetime || 60;
     const casUniq = options.casUniq ? ` ${options.casUniq}` : "";
@@ -433,22 +416,22 @@ export class MemcacheClient extends EventEmitter {
       );
     };
 
-    return this._callbackSend(sendData, key, options, callback) as Promise<string[]>;
+    return this._callbackSend({ data: sendData, key, options, callback }) as Promise<string[]>;
   }
 
-  get<ValueType>(
-    key: string | string[],
-    options?: StoreCommandOptions,
+  get<ValueType>({ key, options, callback }: {
+    key: string | string[]
+    options?: StoreCommandOptions
     callback?: OperationCallback<MultiRetrieval<ValueType>>
-  ): Promise<MultiRetrieval<ValueType>> {
-    return this.retrieve("get", key, options, callback);
+  }): Promise<MultiRetrieval<ValueType>> {
+    return this.retrieve({ cmd: "get", key, options, callback });
   }
 
-  mg<ValueType>(
-    key: string | string[],
-    options?: MetaGetOptions,
+  mg<ValueType>({ key, options, callback }: {
+    key: string | string[]
+    options?: MetaGetOptions
     callback?: OperationCallback<MultiMetaRetrieval<ValueType>>
-  ): Promise<MultiMetaRetrieval<ValueType>> {
+  }): Promise<MultiMetaRetrieval<ValueType>> {
     // always request value and flags
     // key is only requested when there is an array to identify the responses by key
     const metaFlagParts = [Array.isArray(key) ? "v k f" : "v f"];
@@ -471,57 +454,52 @@ export class MemcacheClient extends EventEmitter {
       metaFlagParts.push(`N${options.vivifyOnMiss}`);
     }
 
-    return this.retrieve("mg", key, options, callback, metaFlagParts.join(" "));
+    return this.retrieve({ cmd: "mg", key, options, callback, metaFlags: metaFlagParts.join(" ") });
   }
 
-  gets<ValueType>(
-    key: string | string[],
-    options?: StoreCommandOptions,
+  gets<ValueType>({ key, options, callback }: {
+    key: string | string[]
+    options?: StoreCommandOptions
     callback?: OperationCallback<MultiCasRetrieval<ValueType>>
-  ): Promise<MultiCasRetrieval<ValueType>> {
-    return this.retrieve("gets", key, options, callback);
+  }): Promise<MultiCasRetrieval<ValueType>> {
+    return this.retrieve({ cmd: "gets", key, options, callback });
   }
 
   // Like gets, but catches errors per-server instead of failing fast.
   // Returns partial results along with error information for failed servers.
-  getsWithErrors<ValueType, Keys extends string = string>(
-    keys: Keys[],
+  getsWithErrors<ValueType, Keys extends string = string>({ keys, options }: {
+    keys: Keys[]
     options?: StoreCommandOptions
-  ): Promise<MultiCasRetrievalWithErrorsResponse<ValueType, Keys>> {
-    return this.xretrieveWithErrors("gets", keys, options) as Promise<
+  }): Promise<MultiCasRetrievalWithErrorsResponse<ValueType, Keys>> {
+    return this.xretrieveWithErrors({ cmd: "gets", keys, options }) as Promise<
       MultiCasRetrievalWithErrorsResponse<ValueType, Keys>
     >;
   }
 
   // Like get, but catches errors per-server instead of failing fast.
   // Returns partial results along with error information for failed servers.
-  getWithErrors<ValueType, Keys extends string = string>(
-    keys: Keys[],
+  getWithErrors<ValueType, Keys extends string = string>({ keys, options }: {
+    keys: Keys[]
     options?: StoreCommandOptions
-  ): Promise<MultiRetrievalWithErrorsResponse<ValueType, Keys>> {
-    return this.xretrieveWithErrors("get", keys, options) as Promise<
+  }): Promise<MultiRetrievalWithErrorsResponse<ValueType, Keys>> {
+    return this.xretrieveWithErrors({ cmd: "get", keys, options }) as Promise<
       MultiRetrievalWithErrorsResponse<ValueType, Keys>
     >;
   }
 
   // A generic API for issuing get or gets command
-  retrieve<T>(
-    cmd: RetrieveCommands,
-    key: string[] | string,
-    options: StoreCommandOptions = {},
-    callback?: ErrorFirstCallback,
+  retrieve<T>({ cmd, key, options = {}, callback, metaFlags }: {
+    cmd: RetrieveCommands
+    key: string[] | string
+    options?: StoreCommandOptions
+    callback?: ErrorFirstCallback
     metaFlags?: string
-  ): Promise<T> {
-    return nodeify(this.xretrieve(cmd, key, options, metaFlags), callback) as Promise<T>;
+  }): Promise<T> {
+    return nodeify(this.xretrieve({ cmd, key, options, metaFlags }), callback) as Promise<T>;
   }
 
   // the promise only version of retrieve
-  xretrieve(
-    cmd: RetrieveCommands,
-    key: string | string[],
-    options?: StoreCommandOptions,
-    metaFlags?: string
-  ): Promise<unknown> {
+  xretrieve({ cmd, key, options, metaFlags }: XRetrieveArgs): Promise<unknown> {
     // split into requests by consistently hashed server if necessary
     const serverManager = this._servers;
     if (serverManager instanceof ConsistentlyHashedServers && Array.isArray(key)) {
@@ -535,20 +513,15 @@ export class MemcacheClient extends EventEmitter {
       }
       return Promise.all(
         Array.from(serverKeys.values()).map((keys) =>
-          this._xretrieveByServer(cmd, keys, options, metaFlags)
+          this._xretrieveByServer({ cmd, key: keys, options, metaFlags })
         )
       );
     }
-    return this._xretrieveByServer(cmd, key, options, metaFlags);
+    return this._xretrieveByServer({ cmd, key, options, metaFlags });
   }
 
   // retrieve one or more keys from a single server
-  _xretrieveByServer(
-    cmd: RetrieveCommands,
-    key: string | string[],
-    options?: StoreCommandOptions,
-    metaFlags?: string
-  ): Promise<unknown> {
+  _xretrieveByServer({ cmd, key, options, metaFlags }: XRetrieveArgs): Promise<unknown> {
     //
     // get <key>*\r\n
     // gets <key>*\r\n
@@ -560,34 +533,36 @@ export class MemcacheClient extends EventEmitter {
       // sending multiple keys works differently for meta protocol
       // e.g. "mg foo v\r\nmg bar v\r\nmg baz v\r\n" instead of "mg foo bar baz v\r\n"
       return Array.isArray(key)
-        ? this.xsend(key.map((k) => `${cmd} ${k} ${metaFlags}\r\n`).join(""), key[0], {
-          ...options,
-          expectedResponses: key.length,
-        })
-        : this.xsend(`${cmd} ${key} ${metaFlags}\r\n`, key, options).then((r: unknown) =>
+        ? this.xsend({ data: key.map((k) => `${cmd} ${k} ${metaFlags}\r\n`).join(""),
+          key: key[0],
+          options: {
+            ...options,
+            expectedResponses: key.length,
+          } })
+        : this.xsend({ data: `${cmd} ${key} ${metaFlags}\r\n`, key, options }).then((r: unknown) =>
           Object.values(r as Record<string, unknown>).shift()
         );
     }
     return Array.isArray(key)
-      ? this.xsend(`${cmd} ${key.join(" ")}\r\n`, key[0], options)
-      : this.xsend(`${cmd} ${key}\r\n`, key, options).then(
+      ? this.xsend({ data: `${cmd} ${key.join(" ")}\r\n`, key: key[0], options })
+      : this.xsend({ data: `${cmd} ${key}\r\n`, key, options }).then(
         (r: unknown) => (r as Record<string, unknown>)[key]
       );
   }
 
   // the promise only version of retrieve that catches errors per-server
   // instead of failing fast, allowing partial results to be returned
-  async xretrieveWithErrors<Keys extends string>(
-    cmd: RetrieveCommands,
-    keys: Keys[],
+  async xretrieveWithErrors<Keys extends string>({ cmd, keys, options }: {
+    cmd: RetrieveCommands
+    keys: Keys[]
     options?: StoreCommandOptions
-  ): Promise<MultiCasRetrievalWithErrorsResponse<unknown, Keys>> {
+  }): Promise<MultiCasRetrievalWithErrorsResponse<unknown, Keys>> {
     const serverManager = this._servers;
 
     // If not using consistently hashed servers, just do a single request
     if (!(serverManager instanceof ConsistentlyHashedServers)) {
       try {
-        const result = await this._xretrieveByServer(cmd, keys, options);
+        const result = await this._xretrieveByServer({ cmd, key: keys, options });
         return { result: result as MultiCasRetrievalResponse, errors: [] };
       } catch (error) {
         return {
@@ -611,7 +586,7 @@ export class MemcacheClient extends EventEmitter {
     const results = await Promise.all(
       Array.from(serverKeysMap.entries()).map(async ([serverKey, serverKeys]) => {
         try {
-          return await this._xretrieveByServer(cmd, serverKeys, options);
+          return await this._xretrieveByServer({ cmd, key: serverKeys, options });
         } catch (error) {
           errors.push({
             error: error as Error,
@@ -678,13 +653,13 @@ export class MemcacheClient extends EventEmitter {
   }
 
   // internal send that expects all params passed (even if they are undefined)
-  _callbackSend<ValueType>(
-    data: StoreParams | SocketCallback,
-    key: string,
-    options?: Partial<CasCommandOptions>,
+  _callbackSend<ValueType>({ data, key, options, callback }: {
+    data: StoreParams | SocketCallback
+    key: string
+    options?: Partial<CasCommandOptions>
     callback?: ErrorFirstCallback
-  ): Promise<ValueType> {
-    return nodeify<ValueType>(this.xsend(data, key, options), callback);
+  }): Promise<ValueType> {
+    return nodeify<ValueType>(this.xsend({ data, key, options }), callback);
   }
 
   _unpackValue(result: PackedData): number | string | Record<string, unknown> | Buffer {
