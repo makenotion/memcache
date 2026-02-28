@@ -282,10 +282,10 @@ export class MemcacheClient extends EventEmitter {
   add(
     key: string,
     value: StoreParams,
-    options?: StoreCommandOptions | OperationCallback<Error, string[]>,
+    options?: StoreCommandOptions,
     callback?: OperationCallback<Error, string[]>
   ): Promise<string[]> {
-    return this.store("add", key, value, options as StoreCommandOptions, callback);
+    return this.store("add", key, value, options, callback);
   }
 
   // "replace" means "store this data, but only if the server *does*
@@ -293,30 +293,30 @@ export class MemcacheClient extends EventEmitter {
   replace(
     key: string,
     value: StoreParams,
-    options?: StoreCommandOptions | OperationCallback<Error, string[]>,
+    options?: StoreCommandOptions,
     callback?: OperationCallback<Error, string[]>
   ): Promise<string[]> {
-    return this.store("replace", key, value, options as StoreCommandOptions, callback);
+    return this.store("replace", key, value, options, callback);
   }
 
   // "append" means "add this data to an existing key after existing data".
   append(
     key: string,
     value: StoreParams,
-    options?: StoreCommandOptions | OperationCallback<Error, string[]>,
+    options?: StoreCommandOptions,
     callback?: OperationCallback<Error, string[]>
   ): Promise<string[]> {
-    return this.store("append", key, value, options as StoreCommandOptions, callback);
+    return this.store("append", key, value, options, callback);
   }
 
   // "prepend" means "add this data to an existing key before existing data".
   prepend(
     key: string,
     value: StoreParams,
-    options?: StoreCommandOptions | OperationCallback<Error, string[]>,
+    options?: StoreCommandOptions,
     callback?: OperationCallback<Error, string[]>
   ): Promise<string[]> {
-    return this.store("prepend", key, value, options as StoreCommandOptions, callback);
+    return this.store("prepend", key, value, options, callback);
   }
 
   // "cas" is a check and set operation which means "store this data but
@@ -337,60 +337,40 @@ export class MemcacheClient extends EventEmitter {
   // delete key, fire & forget with options.noreply
   delete(
     key: string,
-    options?: CommonCommandOption | OperationCallback<Error, string[]>,
+    options?: CommonCommandOption,
     callback?: OperationCallback<Error, string[]>
   ): Promise<string[]> {
-    return this.cmd(
-      `delete ${key}`,
-      key,
-      options as CommonCommandOption,
-      callback
-    );
+    return this.cmd(`delete ${key}`, key, options, callback);
   }
 
   // incr key by value, fire & forget with options.noreply
   incr(
     key: string,
     value: number,
-    options?: StoreCommandOptions | OperationCallback<Error, string>,
+    options?: StoreCommandOptions,
     callback?: OperationCallback<Error, string>
   ): Promise<string> {
-    return this.cmd(
-      `incr ${key} ${value}`,
-      key,
-      options as StoreCommandOptions,
-      callback
-    );
+    return this.cmd(`incr ${key} ${value}`, key, options, callback);
   }
 
   // decrease key by value, fire & forget with options.noreply
   decr(
     key: string,
     value: number,
-    options?: StoreCommandOptions | OperationCallback<Error, string>,
+    options?: StoreCommandOptions,
     callback?: OperationCallback<Error, string>
   ): Promise<string> {
-    return this.cmd(
-      `decr ${key} ${value}`,
-      key,
-      options as StoreCommandOptions,
-      callback
-    );
+    return this.cmd(`decr ${key} ${value}`, key, options, callback);
   }
 
   // touch key with exp time, fire & forget with options.noreply
   touch(
     key: string,
     exptime: string | number,
-    options?: CommonCommandOption | OperationCallback<Error, string[]>,
+    options?: CommonCommandOption,
     callback?: OperationCallback<Error, string[]>
   ): Promise<string[]> {
-    return this.cmd(
-      `touch ${key} ${exptime}`,
-      key,
-      options as CommonCommandOption,
-      callback
-    );
+    return this.cmd(`touch ${key} ${exptime}`, key, options, callback);
   }
 
   // get version of server
@@ -401,11 +381,11 @@ export class MemcacheClient extends EventEmitter {
   // flush all keys from the server, optionally after a delay in seconds
   flush(
     exptime?: number,
-    options?: CommonCommandOption | OperationCallback<Error, string[]>,
+    options?: CommonCommandOption,
     callback?: OperationCallback<Error, string[]>
   ): Promise<string[]> {
     const cmd = exptime !== undefined ? `flush_all ${exptime}` : "flush_all";
-    return this.cmd(cmd, "", options as CommonCommandOption, callback) as unknown as Promise<string[]>;
+    return this.cmd(cmd, "", options, callback) as Promise<string[]>;
   }
 
   async versionAll(
@@ -442,7 +422,7 @@ export class MemcacheClient extends EventEmitter {
     cmd: string,
     key: string,
     value: StoreParams,
-    options?: Partial<CasCommandOptions> | OperationCallback<Error, string[]>,
+    options?: Partial<CasCommandOptions>,
     callback?: OperationCallback<Error, string[]>
   ): Promise<string[]> {
     if (typeof options === "function") {
@@ -462,10 +442,7 @@ export class MemcacheClient extends EventEmitter {
     // <command name> <key> <flags> <exptime> <bytes> [noreply]\r\n
     //
     const _data: SocketCallback = (socket?: Socket) => {
-      const packed = this._packer.pack(
-        value,
-        (options as Partial<CasCommandOptions>)?.compress === true
-      );
+      const packed = this._packer.pack(value, options.compress === true);
       const bytes = Buffer.byteLength(packed.data);
       socket?.write(
         Buffer.concat([
@@ -476,12 +453,12 @@ export class MemcacheClient extends EventEmitter {
       );
     };
 
-    return this._callbackSend(_data, key, options, callback) as unknown as Promise<string[]>;
+    return this._callbackSend(_data, key, options, callback) as Promise<string[]>;
   }
 
   get<ValueType>(
     key: string | string[],
-    options?: StoreCommandOptions | OperationCallback<Error, MultiRetrieval<ValueType>>,
+    options?: StoreCommandOptions,
     callback?: OperationCallback<Error, MultiRetrieval<ValueType>>
   ): Promise<MultiRetrieval<ValueType>> {
     return this.retrieve("get", key, options, callback);
@@ -524,7 +501,7 @@ export class MemcacheClient extends EventEmitter {
 
   gets<ValueType>(
     key: string | string[],
-    options?: StoreCommandOptions | OperationCallback<Error, MultiCasRetrieval<ValueType>>,
+    options?: StoreCommandOptions,
     callback?: OperationCallback<Error, MultiCasRetrieval<ValueType>>
   ): Promise<MultiCasRetrieval<ValueType>> {
     return this.retrieve("gets", key, options, callback);
@@ -556,7 +533,7 @@ export class MemcacheClient extends EventEmitter {
   retrieve<T>(
     cmd: string,
     key: string[] | string,
-    options?: StoreCommandOptions | OperationCallback<Error, T>,
+    options?: StoreCommandOptions,
     callback?: ErrorFirstCallback,
     metaFlags?: string
   ): Promise<T> {
@@ -564,7 +541,7 @@ export class MemcacheClient extends EventEmitter {
       callback = options;
       options = {};
     }
-    return nodeify(this.xretrieve(cmd, key, options, metaFlags), callback) as unknown as Promise<T>;
+    return nodeify(this.xretrieve(cmd, key, options, metaFlags), callback) as Promise<T>;
   }
 
   // the promise only version of retrieve
