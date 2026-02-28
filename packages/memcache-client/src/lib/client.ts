@@ -34,7 +34,7 @@ type StoreCommandOptions = CommonCommandOption & { ignoreNotStored?: boolean } &
 }>;
 
 type RetrieveCommands = "get" | "gets" | "mg" | "stats" | "version" | "verbosity" | "quit";
-type StoreCommands = "set" | "add" | "replace" | "append" | "prepend" | "cas" | "delete" | "incr" | "decr" | "touch" | "flush_all";
+type StoreCommands = "set" | "add" | "replace" | "append" | "prepend" | "cas";
 type Command = RetrieveCommands | StoreCommands;
 
 // Exported for testing
