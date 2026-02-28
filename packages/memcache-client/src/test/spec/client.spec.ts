@@ -198,9 +198,9 @@ describe("memcache client", function () {
   it("should use callback on get and set", (done) => {
     const x = new MemcacheClient({ server });
     const key = `foo_${Date.now()}`;
-    x.set(key, "bar", (err?: Error | null) => {
+    x.set(key, "bar", {}, (err?: Error | null) => {
       expect(err).toBeNull();
-      x.get(key, (gerr, data) => {
+      x.get(key, {}, (gerr, data) => {
         expect(gerr).toBeNull();
         expect(data?.value).toEqual("bar");
         x.shutdown();
@@ -227,7 +227,7 @@ describe("memcache client", function () {
   it("should set value with custom lifetime", () => {
     const x = new MemcacheClient({ server });
     let testOptions: Partial<CasCommandOptions> = {};
-    (x as any)._callbackSend = (data: unknown, key: string, options: Partial<CasCommandOptions> | undefined): Promise<unknown> => {
+    x._callbackSend = <ValueType>(data: unknown, key: string, options?: Partial<CasCommandOptions>): Promise<ValueType> => {
       testOptions = options || {};
       return Promise.resolve();
     };

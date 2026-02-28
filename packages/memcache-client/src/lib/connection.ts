@@ -191,8 +191,8 @@ export class MemcacheConnection extends MemcacheParser {
     return this._status === "SHUTDOWN";
   }
 
-  getStatusStr(): string {
-    return this._status || "UNKNOWN";
+  getStatusStr(): Status {
+    return this._status;
   }
 
   waitReady(): ConnectingPromise {
