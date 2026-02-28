@@ -5,7 +5,7 @@ import assert from "assert";
 import { MemcacheNode } from "./memcache-node";
 import { MemcacheParser, ParserPendingData } from "memcache-parser";
 import { MemcacheClient, MetaResult } from "./client";
-import cmdActions, { CommandAction } from "./cmd-actions";
+import cmdActions, { ActionType, CommandAction } from "./cmd-actions";
 import defaults from "./defaults";
 import {
   CommandContext,
@@ -49,6 +49,21 @@ export class MemcacheConnection extends MemcacheParser {
   _reset = false;
   private _checkCmdTimer: ReturnType<typeof setTimeout> | undefined;
   private _cmdCheckInterval: number;
+
+  private readonly cmdActionHandlers: Record<ActionType, (cmdTokens: string[]) => void> = {
+    OK: (t) => this.cmdAction_OK(t),
+    ERROR: (t) => this.cmdAction_ERROR(t),
+    RESULT: (t) => this.cmdAction_RESULT(t),
+    SINGLE_RESULT: (t) => this.cmdAction_SINGLE_RESULT(t),
+    SELF: (t) => this.cmdAction_SELF(t),
+  };
+
+  private readonly selfCmdHandlers: Record<string, (cmdTokens: string[]) => void> = {
+    VALUE: (t) => this.cmd_VALUE(t),
+    VA: (t) => this.cmd_VA(t),
+    EN: (t) => this.cmd_EN(t),
+    END: (t) => this.cmd_END(t),
+  };
 
   // TODO: still don't know which type client is
   constructor(client: MemcacheClient, node?: MemcacheNode) {
@@ -210,7 +225,12 @@ export class MemcacheConnection extends MemcacheParser {
 
   processCmd(cmdTokens: string[]): number {
     const action = cmdActions[cmdTokens[0] as CommandAction];
-    return (this as any)[`cmdAction_${action}` as keyof MemcacheConnection](cmdTokens);
+    const handler = action ? this.cmdActionHandlers[action] : undefined;
+    if (handler) {
+      handler(cmdTokens);
+      return cmdTokens.length;
+    }
+    return this.cmdAction_undefined(cmdTokens) ? cmdTokens.length : 0;
   }
 
   _processMetaItem(token: string, metadata: MetaResult): void {
@@ -335,8 +355,8 @@ export class MemcacheConnection extends MemcacheParser {
     this.cmdAction_OK(cmdTokens);
   }
 
-  cmdAction_SELF(cmdTokens: string[]): number | void {
-    (this as any)[`cmd_${cmdTokens[0]}` as keyof MemcacheConnection](cmdTokens);
+  cmdAction_SELF(cmdTokens: string[]): void {
+    this.selfCmdHandlers[cmdTokens[0]]?.(cmdTokens);
   }
 
   cmdAction_undefined(cmdTokens: string[]): boolean {
