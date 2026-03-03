@@ -33,7 +33,7 @@ export class MemcacheNode {
 
     // make a new connection
     if (this.connections.length < (this.options.maxConnections ?? 0)) {
-      return tracer.startActiveSpan("memcached.connect", (_) => this._connect(this.options.server)?.then(action));
+      return tracer.startActiveSpan("memcached.connect", async (_) => await this._connect(this.options.server))?.then(action);
     }
 
     // look for least busy connection

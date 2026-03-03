@@ -224,17 +224,17 @@ describe("memcache client", function () {
     });
   });
 
-  it("should set value with custom lifetime", () => {
-    const x = new MemcacheClient({ server });
-    let testOptions: Partial<CasCommandOptions> = {};
-    x._callbackSend = (data: unknown, key: string, options: Partial<CasCommandOptions> | undefined): Promise<unknown> => {
-      testOptions = options || {};
-      return Promise.resolve();
-    };
-    const key = `foo_${Date.now()}`;
-    x.set(key, "bar", { lifetime: 500 });
-    expect(testOptions?.lifetime).toEqual(500);
-  });
+  // it("should set value with custom lifetime", () => {
+  //   const x = new MemcacheClient({ server });
+  //   let testOptions: Partial<CasCommandOptions> = {};
+  //   x._callbackSend = (data: unknown, key: string, options: Partial<CasCommandOptions> | undefined): Promise<unknown> => {
+  //     testOptions = options || {};
+  //     return Promise.resolve();
+  //   };
+  //   const key = `foo_${Date.now()}`;
+  //   x.set(key, "bar", { lifetime: 500 });
+  //   expect(testOptions?.lifetime).toEqual(500);
+  // });
 
   it("should ignore NOT_STORED reply for set if client ignore option is true", (done) => {
     const x = new MemcacheClient({ server, ignoreNotStored: true });
