@@ -33,7 +33,17 @@ export class MemcacheNode {
 
     // make a new connection
     if (this.connections.length < (this.options.maxConnections ?? 0)) {
-      return tracer.startActiveSpan("memcached.connect", async (_) => await this._connect(this.options.server))?.then(action);
+      return tracer.startActiveSpan("memcached.connect", async (span) => {
+        try {
+          return await this._connect(this.options.server);
+        } catch (err) {
+          span.recordException(err as Error);
+          span.setStatus({ code: otel.SpanStatusCode.ERROR });
+          throw err;
+        } finally {
+          span.end();
+        }
+      }).then(action);
     }
 
     // look for least busy connection
