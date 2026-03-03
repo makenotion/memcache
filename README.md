@@ -12,6 +12,8 @@ Our fork is primarily to add support for the meta protocol and a hashring implem
 
 The fact that this repo uses lerna makes it harder to install the packages. We need both memcache-client and memcache-parser in our repo. Here's how I did this:
 
+First, update your package.json in each package with their respective new versions. Then,
+
 ```
 npm run build
 sudo npm i -g gitpkg
@@ -23,10 +25,13 @@ gitpkg publish
 
 This uses gitpkg which generates tags in this repo for each of the packages with just the built artifacts.
 
-Then, in notion-next to install I did:
+Then, in notion-next to install you will need to:
+
+Update package.json in the right module with the newest version, then
 
 ```
-npm i --save git://github.com/makenotion/memcache.git#memcache-parser-v1.0.1-gitpkg git://github.com/makenotion/memcache.git#memcache-client-v1.0.5-gitpkg
+rm -rf src/server-environment/node_modules/memcache-client
+npm install
 ```
 
 ## Local development
