@@ -34,7 +34,6 @@ rm -rf src/server-environment/node_modules/memcache-client
 npm install
 ```
 
-
 ## Local development
 
 You can use `npm link` to test changes to the packages in this repo.
