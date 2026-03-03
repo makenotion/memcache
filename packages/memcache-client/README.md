@@ -28,6 +28,13 @@ $ npm i memcache-client --save
 ### Notes
 - If you want to use compression features and a compression library is not provided, `zstd.ts` is used by default, for that implementation to work, `zstd` is **required** to be an executable program in the OS
 
+### Updating via gitpkg in notion-next
+
+When consuming this package via gitpkg tags (e.g. `github:makenotion/memcache#memcache-client-v1.1.0-gitpkg`), `npm install` will resolve the git ref to a commit hash and lock it in `package-lock.json`. After running `npm install`, you may need to manually fix two fields in `package-lock.json`:
+
+1. **`version`**: npm writes the version from this package's internal `package.json`, which may not match the gitpkg tag name. Update it to match the intended version.
+2. **`resolved` commit hash**: If the gitpkg tag was force-updated to point to a new commit after npm already cached the old resolution, npm will not re-resolve it. You must manually update the commit hash in `package-lock.json` (it appears in two places: the v3 lockfile section and the v1 dependencies section) and then re-run `npm install`.
+
 ## Usage
 
 ```js
