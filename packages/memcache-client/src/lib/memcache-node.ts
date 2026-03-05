@@ -5,7 +5,7 @@ import { MemcacheClient } from "./client";
 import { SingleServerEntry, CommandCallback } from "../types";
 import * as otel from "@opentelemetry/api";
 
-const tracer = otel.trace.getTracer("memcached-client");
+const tracer = otel.trace.getTracer("makenotion/memcache");
 
 export class MemcacheNode {
   options: SingleServerEntry;
@@ -33,8 +33,9 @@ export class MemcacheNode {
 
     // make a new connection
     if (this.connections.length < (this.options.maxConnections ?? 0)) {
-      return tracer.startActiveSpan("memcached.connect", async (span) => {
+      return tracer.startActiveSpan("electrode_memcache.connect", async (span) => {
         try {
+          span.setAttribute("server", this.options.server);
           return await this._connect(this.options.server);
         } catch (err) {
           span.recordException(err as Error);
