@@ -27,7 +27,9 @@ This uses gitpkg which generates tags in this repo for each of the packages with
 
 Then, in notion-next to install you will need to:
 
-Update package.json in the right module with the newest version, then
+1. Update `package.json` in the right module with the newest version tag
+2. Update the resolved commit hash in `package-lock.json` — npm won't re-resolve git dependencies if the lockfile already has a valid commit. Search for `memcache-client` (or `memcache-parser`) in `package-lock.json` and update the commit hash and version number in all occurrences to match the new gitpkg tag.
+3. Remove the cached module and reinstall:
 
 ```
 rm -rf src/server-environment/node_modules/memcache-client
