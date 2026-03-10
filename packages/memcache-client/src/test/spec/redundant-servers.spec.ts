@@ -41,7 +41,7 @@ describe("redundant servers", function () {
         return Promise.resolve([...Array(8)])
           .then((baseArray) =>
             Promise.resolve(
-              baseArray.map(() => x.cmd<StatsCommandResponse>("stats"), { concurrency: 8 })
+              baseArray.map(() => x.cmd<StatsCommandResponse>({ data: "stats" }), { concurrency: 8 })
             )
           )
           .then(async (r) => {
@@ -82,7 +82,7 @@ describe("redundant servers", function () {
         return Promise.resolve([...Array(8)])
           .then((baseArray) =>
             Promise.resolve(
-              baseArray.map(() => x.cmd<StatsCommandResponse>("stats"), { concurrency: 8 })
+              baseArray.map(() => x.cmd<StatsCommandResponse>({ data: "stats" }), { concurrency: 8 })
             )
           )
           .then(async (r) => {
@@ -120,7 +120,7 @@ describe("redundant servers", function () {
         let testErr: Error;
         memcachedServers.forEach((s) => s.pause());
         return Promise.resolve([...Array(8)])
-          .then((baseArray) => Promise.all(baseArray.map(() => x.get("blah"), { concurrency: 8 })))
+          .then((baseArray) => Promise.all(baseArray.map(() => x.get({ key: "blah" }), { concurrency: 8 })))
           .catch((err: Error) => (testErr = err))
           .then(() => expect(testErr.message).toEqual("Command timeout"));
       })
@@ -154,7 +154,7 @@ describe("redundant servers", function () {
     memcachedServers[3].shutdown();
 
     const connectionsBaseArray = await Promise.resolve([...Array(8)]);
-    await Promise.all(connectionsBaseArray.map(() => x.cmd("stats"), { concurrency: 8 }));
+    await Promise.all(connectionsBaseArray.map(() => x.cmd({ data: "stats" }), { concurrency: 8 }));
 
     expect(x._servers._exServers.length).toBe(3);
     await new Promise((r) => setTimeout(r, 1000));
@@ -169,7 +169,7 @@ describe("redundant servers", function () {
     );
 
     const connectionPromises = await Promise.resolve(
-      connectionsBaseArray.map(() => x.cmd<StatsCommandResponse>("stats"), { concurrency: 8 })
+      connectionsBaseArray.map(() => x.cmd<StatsCommandResponse>({ data: "stats" }), { concurrency: 8 })
     );
 
     expect(x._servers._exServers.length).toBe(0);
@@ -202,7 +202,7 @@ describe("redundant servers", function () {
 
     let testErr: Error;
     return x
-      .cmd("stats")
+      .cmd({ data: "stats" })
       .catch((err: Error) => (testErr = err))
       .then(() => expect(testErr.message).toEqual("No more valid servers left"));
   });
