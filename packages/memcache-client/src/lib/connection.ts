@@ -1,15 +1,11 @@
 import Net, { Socket } from "net";
 import Tls from "tls";
 import assert from "assert";
-import { optionalRequire } from "optional-require";
 
-const Promise = optionalRequire("bluebird", {
-  default: global.Promise,
-});
 import { MemcacheNode } from "./memcache-node";
 import { MemcacheParser, ParserPendingData } from "memcache-parser";
 import { MemcacheClient, MetaResult } from "./client";
-import cmdActions from "./cmd-actions";
+import cmdActions, { ActionType, CommandAction } from "./cmd-actions";
 import defaults from "./defaults";
 import {
   CommandContext,
@@ -23,19 +19,14 @@ import {
 /* eslint-disable no-bitwise,no-magic-numbers,max-params,no-unused-vars */
 /* eslint-disable no-console,camelcase,max-statements,no-var */
 
-export const Status = {
-  INIT: 1,
-  CONNECTING: 2,
-  READY: 3,
-  SHUTDOWN: 4,
-};
+export const Status = [
+  "INIT",
+  "CONNECTING",
+  "READY",
+  "SHUTDOWN",
+] as const;
 
-const StatusStr = {
-  [Status.INIT]: "INIT",
-  [Status.CONNECTING]: "CONNECTING",
-  [Status.READY]: "READY",
-  [Status.SHUTDOWN]: "SHUTDOWN",
-};
+export type Status = (typeof Status)[number];
 
 type QueueError = Error & { cmdTokens?: string[] };
 
@@ -47,17 +38,32 @@ export type DangleWaitResponse = {
   err?: Error;
 };
 export class MemcacheConnection extends MemcacheParser {
-  node;
+  node: MemcacheNode | undefined;
   client?: MemcacheClient;
   socket: Socket | undefined;
   _cmdQueue: Array<QueuedCommandContext>;
-  _id;
-  _cmdTimeout;
-  _connectPromise: ConnectingPromise | undefined | string;
-  _status;
+  _id: number;
+  _cmdTimeout: number;
+  _connectPromise: ConnectingPromise | undefined;
+  _status: Status;
   _reset = false;
   private _checkCmdTimer: ReturnType<typeof setTimeout> | undefined;
-  private _cmdCheckInterval;
+  private _cmdCheckInterval: number;
+
+  private readonly cmdActionHandlers: Record<ActionType, (cmdTokens: string[]) => void> = {
+    OK: (t) => this.cmdAction_OK(t),
+    ERROR: (t) => this.cmdAction_ERROR(t),
+    RESULT: (t) => this.cmdAction_RESULT(t),
+    SINGLE_RESULT: (t) => this.cmdAction_SINGLE_RESULT(t),
+    SELF: (t) => this.cmdAction_SELF(t),
+  };
+
+  private readonly selfCmdHandlers: Record<string, (cmdTokens: string[]) => void> = {
+    VALUE: (t) => this.cmd_VALUE(t),
+    VA: (t) => this.cmd_VA(t),
+    EN: (t) => this.cmd_EN(t),
+    END: (t) => this.cmd_END(t),
+  };
 
   // TODO: still don't know which type client is
   constructor(client: MemcacheClient, node?: MemcacheNode) {
@@ -73,7 +79,7 @@ export class MemcacheConnection extends MemcacheParser {
     assert(this._cmdTimeout > 0, "cmdTimeout must be > 0");
     this._cmdCheckInterval = Math.min(250, Math.ceil(this._cmdTimeout / 4));
     this._cmdCheckInterval = Math.max(50, this._cmdCheckInterval);
-    this._status = Status.INIT;
+    this._status = "INIT";
   }
 
   waitDangleSocket(socket?: Socket): void {
@@ -117,7 +123,7 @@ export class MemcacheConnection extends MemcacheParser {
       socket = Net.createConnection({ host, port });
     }
     this._connectPromise = new Promise((resolve: ResolveCallback, reject: RejectCallback) => {
-      this._status = Status.CONNECTING;
+      this._status = "CONNECTING";
 
       const selfTimeout = () => {
         if (!((this.client?.options?.connectTimeout ?? 0) > 0)) return undefined;
@@ -157,7 +163,7 @@ export class MemcacheConnection extends MemcacheParser {
 
       socket.once("connect", () => {
         this.socket = socket;
-        this._status = Status.READY;
+        this._status = "READY";
         this._connectPromise = undefined;
         socket.removeAllListeners("error");
         this._setupConnection(socket);
@@ -174,25 +180,25 @@ export class MemcacheConnection extends MemcacheParser {
   }
 
   isReady(): boolean {
-    return this._status === Status.READY;
+    return this._status === "READY";
   }
 
   isConnecting(): boolean {
-    return this._status === Status.CONNECTING;
+    return this._status === "CONNECTING";
   }
 
   isShutdown(): boolean {
-    return this._status === Status.SHUTDOWN;
+    return this._status === "SHUTDOWN";
   }
 
-  getStatusStr(): string {
-    return StatusStr[this._status] || "UNKNOWN";
+  getStatusStr(): Status {
+    return this._status;
   }
 
   waitReady(): ConnectingPromise {
     if (this.isConnecting()) {
       assert(this._connectPromise, "MemcacheConnection not pending connect");
-      return this._connectPromise as ConnectingPromise;
+      return this._connectPromise;
     } else if (this.isReady()) {
       return Promise.resolve(this);
     } else {
@@ -208,7 +214,7 @@ export class MemcacheConnection extends MemcacheParser {
 
   dequeueCommand(): QueuedCommandContext | undefined {
     if (this.isShutdown()) {
-      return { callback: () => undefined } as unknown as QueuedCommandContext;
+      return undefined;
     }
     return this._cmdQueue.pop();
   }
@@ -218,8 +224,13 @@ export class MemcacheConnection extends MemcacheParser {
   }
 
   processCmd(cmdTokens: string[]): number {
-    const action = cmdActions[cmdTokens[0]];
-    return (this as any)[`cmdAction_${action}` as keyof MemcacheConnection](cmdTokens);
+    const action = cmdActions[cmdTokens[0] as CommandAction];
+    const handler = action ? this.cmdActionHandlers[action] : undefined;
+    if (handler) {
+      handler(cmdTokens);
+      return cmdTokens.length;
+    }
+    return this.cmdAction_undefined(cmdTokens) ? cmdTokens.length : 0;
   }
 
   _processMetaItem(token: string, metadata: MetaResult): void {
@@ -344,8 +355,8 @@ export class MemcacheConnection extends MemcacheParser {
     this.cmdAction_OK(cmdTokens);
   }
 
-  cmdAction_SELF(cmdTokens: string[]): number | void {
-    (this as any)[`cmd_${cmdTokens[0]}` as keyof MemcacheConnection](cmdTokens);
+  cmdAction_SELF(cmdTokens: string[]): void {
+    this.selfCmdHandlers[cmdTokens[0]]?.(cmdTokens);
   }
 
   cmdAction_undefined(cmdTokens: string[]): boolean {
@@ -388,7 +399,7 @@ export class MemcacheConnection extends MemcacheParser {
     while ((cmd = this.dequeueCommand())) {
       cmd.callback(new Error(msg));
     }
-    this._status = Status.SHUTDOWN;
+    this._status = "SHUTDOWN";
     // reset connection
     this.node?.endConnection(this);
     if (this.socket) {
@@ -454,5 +465,3 @@ export class MemcacheConnection extends MemcacheParser {
     });
   }
 }
-
-(MemcacheConnection as unknown as Record<string, Record<string, number>>).Status = Status;

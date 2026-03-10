@@ -17,7 +17,6 @@ import {
   CommandContext,
   SingleServerEntry,
   PackedData,
-  CompressorLibrary,
   MultiServerManager,
 } from "../types";
 import { MemcacheConnection } from "./connection";
@@ -32,6 +31,10 @@ type StoreCommandOptions = CommonCommandOption & { ignoreNotStored?: boolean } &
   lifetime?: number;
   compress?: boolean;
 }>;
+
+type RetrieveCommands = "get" | "gets" | "mg";
+type StoreCommands = "set" | "add" | "replace" | "append" | "prepend" | "cas";
+type Command = RetrieveCommands | StoreCommands;
 
 // Exported for testing
 export type CasCommandOptions = CommonCommandOption &
@@ -175,7 +178,7 @@ export class MemcacheClient extends EventEmitter {
     this.options = options;
     this.socketID = 1;
     this._packer = new ValuePacker(
-      options.compressor || (Zstd as CompressorLibrary),
+      options.compressor || Zstd,
       options.assumeBuffer || false
     );
     this._logger = options.logger !== undefined ? options.logger : nullLogger;
@@ -215,15 +218,10 @@ export class MemcacheClient extends EventEmitter {
   send<ValueType>(
     data: StoreParams | SocketCallback,
     key: string,
-    options?: CommonCommandOption | ErrorFirstCallback,
+    options?: CommonCommandOption,
     callback?: ErrorFirstCallback
   ): Promise<ValueType> {
-    if (typeof options === "function") {
-      callback = options;
-      options = {};
-    } else if (options === undefined) {
-      options = {};
-    }
+    options = options || {};
 
     return this._callbackSend(data, key, options, callback);
   }
@@ -266,15 +264,14 @@ export class MemcacheClient extends EventEmitter {
   set(
     key: string,
     value: StoreParams,
-    options?: StoreCommandOptions | OperationCallback<Error, string[]>,
+    options?: StoreCommandOptions,
     callback?: OperationCallback<Error, string[]>
   ): Promise<string[]> {
     options = options || {};
-    if ((options as StoreCommandOptions).ignoreNotStored === undefined) {
-      (options as StoreCommandOptions).ignoreNotStored = this.options.ignoreNotStored;
+    if (options.ignoreNotStored === undefined) {
+      options.ignoreNotStored = this.options.ignoreNotStored;
     }
-    // it's tricky to threat optional object as callback
-    return this.store("set", key, value, options as StoreCommandOptions, callback);
+    return this.store("set", key, value, options, callback);
   }
 
   // "add" means "store this data, but only if the server *doesn't* already
@@ -282,10 +279,10 @@ export class MemcacheClient extends EventEmitter {
   add(
     key: string,
     value: StoreParams,
-    options?: StoreCommandOptions | OperationCallback<Error, string[]>,
+    options?: StoreCommandOptions,
     callback?: OperationCallback<Error, string[]>
   ): Promise<string[]> {
-    return this.store("add", key, value, options as StoreCommandOptions, callback);
+    return this.store("add", key, value, options, callback);
   }
 
   // "replace" means "store this data, but only if the server *does*
@@ -293,30 +290,30 @@ export class MemcacheClient extends EventEmitter {
   replace(
     key: string,
     value: StoreParams,
-    options?: StoreCommandOptions | OperationCallback<Error, string[]>,
+    options?: StoreCommandOptions,
     callback?: OperationCallback<Error, string[]>
   ): Promise<string[]> {
-    return this.store("replace", key, value, options as StoreCommandOptions, callback);
+    return this.store("replace", key, value, options, callback);
   }
 
   // "append" means "add this data to an existing key after existing data".
   append(
     key: string,
     value: StoreParams,
-    options?: StoreCommandOptions | OperationCallback<Error, string[]>,
+    options?: StoreCommandOptions,
     callback?: OperationCallback<Error, string[]>
   ): Promise<string[]> {
-    return this.store("append", key, value, options as StoreCommandOptions, callback);
+    return this.store("append", key, value, options, callback);
   }
 
   // "prepend" means "add this data to an existing key before existing data".
   prepend(
     key: string,
     value: StoreParams,
-    options?: StoreCommandOptions | OperationCallback<Error, string[]>,
+    options?: StoreCommandOptions,
     callback?: OperationCallback<Error, string[]>
   ): Promise<string[]> {
-    return this.store("prepend", key, value, options as StoreCommandOptions, callback);
+    return this.store("prepend", key, value, options, callback);
   }
 
   // "cas" is a check and set operation which means "store this data but
@@ -337,60 +334,40 @@ export class MemcacheClient extends EventEmitter {
   // delete key, fire & forget with options.noreply
   delete(
     key: string,
-    options?: CommonCommandOption | OperationCallback<Error, string[]>,
+    options?: CommonCommandOption,
     callback?: OperationCallback<Error, string[]>
   ): Promise<string[]> {
-    return this.cmd(
-      `delete ${key}`,
-      key,
-      options as CommonCommandOption,
-      callback
-    );
+    return this.cmd(`delete ${key}`, key, options, callback);
   }
 
   // incr key by value, fire & forget with options.noreply
   incr(
     key: string,
     value: number,
-    options?: StoreCommandOptions | OperationCallback<Error, string>,
+    options?: StoreCommandOptions,
     callback?: OperationCallback<Error, string>
   ): Promise<string> {
-    return this.cmd(
-      `incr ${key} ${value}`,
-      key,
-      options as StoreCommandOptions,
-      callback
-    );
+    return this.cmd(`incr ${key} ${value}`, key, options, callback);
   }
 
   // decrease key by value, fire & forget with options.noreply
   decr(
     key: string,
     value: number,
-    options?: StoreCommandOptions | OperationCallback<Error, string>,
+    options?: StoreCommandOptions,
     callback?: OperationCallback<Error, string>
   ): Promise<string> {
-    return this.cmd(
-      `decr ${key} ${value}`,
-      key,
-      options as StoreCommandOptions,
-      callback
-    );
+    return this.cmd(`decr ${key} ${value}`, key, options, callback);
   }
 
   // touch key with exp time, fire & forget with options.noreply
   touch(
     key: string,
     exptime: string | number,
-    options?: CommonCommandOption | OperationCallback<Error, string[]>,
+    options?: CommonCommandOption,
     callback?: OperationCallback<Error, string[]>
   ): Promise<string[]> {
-    return this.cmd(
-      `touch ${key} ${exptime}`,
-      key,
-      options as CommonCommandOption,
-      callback
-    );
+    return this.cmd(`touch ${key} ${exptime}`, key, options, callback);
   }
 
   // get version of server
@@ -401,11 +378,11 @@ export class MemcacheClient extends EventEmitter {
   // flush all keys from the server, optionally after a delay in seconds
   flush(
     exptime?: number,
-    options?: CommonCommandOption | OperationCallback<Error, string[]>,
+    options?: CommonCommandOption,
     callback?: OperationCallback<Error, string[]>
   ): Promise<string[]> {
     const cmd = exptime !== undefined ? `flush_all ${exptime}` : "flush_all";
-    return this.cmd(cmd, "", options as CommonCommandOption, callback) as unknown as Promise<string[]>;
+    return this.cmd(cmd, "", options, callback) as Promise<string[]>;
   }
 
   async versionAll(
@@ -439,18 +416,13 @@ export class MemcacheClient extends EventEmitter {
 
   // a generic API for issuing one of the store commands
   store(
-    cmd: string,
+    cmd: StoreCommands,
     key: string,
     value: StoreParams,
-    options?: Partial<CasCommandOptions> | OperationCallback<Error, string[]>,
+    options?: Partial<CasCommandOptions>,
     callback?: OperationCallback<Error, string[]>
   ): Promise<string[]> {
-    if (typeof options === "function") {
-      callback = options;
-      options = {};
-    } else if (options === undefined) {
-      options = {};
-    }
+    options = options || {};
 
     const lifetime =
       options.lifetime !== undefined ? options.lifetime : this.options.lifetime || 60;
@@ -462,10 +434,7 @@ export class MemcacheClient extends EventEmitter {
     // <command name> <key> <flags> <exptime> <bytes> [noreply]\r\n
     //
     const _data: SocketCallback = (socket?: Socket) => {
-      const packed = this._packer.pack(
-        value,
-        (options as Partial<CasCommandOptions>)?.compress === true
-      );
+      const packed = this._packer.pack(value, options.compress === true);
       const bytes = Buffer.byteLength(packed.data);
       socket?.write(
         Buffer.concat([
@@ -476,12 +445,12 @@ export class MemcacheClient extends EventEmitter {
       );
     };
 
-    return this._callbackSend(_data, key, options, callback) as unknown as Promise<string[]>;
+    return this._callbackSend(_data, key, options, callback) as Promise<string[]>;
   }
 
   get<ValueType>(
     key: string | string[],
-    options?: StoreCommandOptions | OperationCallback<Error, MultiRetrieval<ValueType>>,
+    options?: StoreCommandOptions,
     callback?: OperationCallback<Error, MultiRetrieval<ValueType>>
   ): Promise<MultiRetrieval<ValueType>> {
     return this.retrieve("get", key, options, callback);
@@ -524,7 +493,7 @@ export class MemcacheClient extends EventEmitter {
 
   gets<ValueType>(
     key: string | string[],
-    options?: StoreCommandOptions | OperationCallback<Error, MultiCasRetrieval<ValueType>>,
+    options?: StoreCommandOptions,
     callback?: OperationCallback<Error, MultiCasRetrieval<ValueType>>
   ): Promise<MultiCasRetrieval<ValueType>> {
     return this.retrieve("gets", key, options, callback);
@@ -554,22 +523,19 @@ export class MemcacheClient extends EventEmitter {
 
   // A generic API for issuing get or gets command
   retrieve<T>(
-    cmd: string,
+    cmd: RetrieveCommands,
     key: string[] | string,
-    options?: StoreCommandOptions | OperationCallback<Error, T>,
+    options?: StoreCommandOptions,
     callback?: ErrorFirstCallback,
     metaFlags?: string
   ): Promise<T> {
-    if (typeof options === "function") {
-      callback = options;
-      options = {};
-    }
-    return nodeify(this.xretrieve(cmd, key, options, metaFlags), callback) as unknown as Promise<T>;
+    options = options || {};
+    return nodeify(this.xretrieve(cmd, key, options, metaFlags), callback) as Promise<T>;
   }
 
   // the promise only version of retrieve
   xretrieve(
-    cmd: string,
+    cmd: RetrieveCommands,
     key: string | string[],
     options?: StoreCommandOptions,
     metaFlags?: string
@@ -596,7 +562,7 @@ export class MemcacheClient extends EventEmitter {
 
   // retrieve one or more keys from a single server
   _xretrieverByServer(
-    cmd: string,
+    cmd: RetrieveCommands,
     key: string | string[],
     options?: StoreCommandOptions,
     metaFlags?: string
@@ -631,7 +597,7 @@ export class MemcacheClient extends EventEmitter {
   // the promise only version of retrieve that catches errors per-server
   // instead of failing fast, allowing partial results to be returned
   async xretrieveWithErrors<Keys extends string>(
-    cmd: string,
+    cmd: RetrieveCommands,
     keys: Keys[],
     options?: StoreCommandOptions
   ): Promise<MultiCasRetrievalWithErrorsResponse<unknown, Keys>> {

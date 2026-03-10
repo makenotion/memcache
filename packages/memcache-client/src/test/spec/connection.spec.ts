@@ -1,16 +1,17 @@
-import { MemcacheConnection, Status, MemcacheClient, MemcacheNode } from "../..";
+import { MemcacheConnection, MemcacheClient, MemcacheNode } from "../..";
 
 describe.only("MemcacheConnection", function () {
   it("waitReady should resolve connect Promise status is CONNECTING", () => {
     const x = new MemcacheConnection({ socketID: 1 } as unknown as MemcacheClient);
-    x._connectPromise = "test";
-    x._status = Status.CONNECTING;
-    expect(x.waitReady()).toBe("test");
+    const mockPromise = Promise.resolve("test");
+    x._connectPromise = mockPromise;
+    x._status = "CONNECTING";
+    expect(x.waitReady()).toBe(mockPromise);
   });
 
   it("waitReady should resolve self if status is READY", (done) => {
     const x = new MemcacheConnection({ socketID: 1 } as unknown as MemcacheClient);
-    x._status = Status.READY;
+    x._status = "READY";
     x.waitReady().then((data) => {
       expect(data).not.toBeUndefined();
       done();
@@ -19,23 +20,21 @@ describe.only("MemcacheConnection", function () {
 
   it("waitReady should fail if status is INIT", () => {
     const x = new MemcacheConnection({ socketID: 1 } as unknown as MemcacheClient);
-    x._status = Status.INIT;
+    x._status = "INIT";
     expect(() => x.waitReady()).toThrowError(Error);
   });
 
   it("getStatuStr should return correct strings", () => {
     const x = new MemcacheConnection({ socketID: 1 } as unknown as MemcacheClient);
     // const Status = Status;
-    x._status = Status.INIT;
+    x._status = "INIT";
     expect(x.getStatusStr()).toBe("INIT");
-    x._status = Status.CONNECTING;
+    x._status = "CONNECTING";
     expect(x.getStatusStr()).toBe("CONNECTING");
-    x._status = Status.READY;
+    x._status = "READY";
     expect(x.getStatusStr()).toBe("READY");
-    x._status = Status.SHUTDOWN;
+    x._status = "SHUTDOWN";
     expect(x.getStatusStr()).toBe("SHUTDOWN");
-    x._status = 0;
-    expect(x.getStatusStr()).toBe("UNKNOWN");
   });
 
   it("cmdAction_ERROR should append message after command", () => {
@@ -75,7 +74,7 @@ describe.only("MemcacheConnection", function () {
       } as unknown as MemcacheNode
     );
     x._shutdown("test");
-    expect(x.dequeueCommand()?.callback()).toBe(undefined);
+    expect(x.dequeueCommand()).toBeUndefined();
   });
 
   it("waitDangleSocket should do nothing if socket is falsy", () => {
