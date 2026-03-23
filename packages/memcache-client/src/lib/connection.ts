@@ -49,6 +49,7 @@ export class MemcacheConnection extends MemcacheParser {
   _reset = false;
   private _checkCmdTimer: ReturnType<typeof setTimeout> | undefined;
   private _cmdCheckInterval: number;
+  private _lastCheckTime: number | undefined;
 
   private readonly cmdActionHandlers: Record<ActionType, (cmdTokens: string[]) => void> = {
     OK: (t) => this.cmdAction_OK(t),
@@ -414,16 +415,32 @@ export class MemcacheConnection extends MemcacheParser {
 
   _checkCmdTimeout(): void {
     this._checkCmdTimer = undefined;
+    const now = Date.now();
 
     if (this._cmdQueue.length > 0) {
       const cmd = this.peekCommand();
-      const now = Date.now();
-      if (now - cmd.queuedTime > this._cmdTimeout) {
+      let effectiveTimeout = this._cmdTimeout;
+
+      // Account for event loop delay (ELD). If the timer fired later than
+      // expected, the overshoot represents time the event loop was blocked.
+      // During that time, responses sitting in the socket buffer couldn't be
+      // processed, so we extend the timeout to avoid false "Command timeout"
+      // errors caused by ELD rather than actual server unresponsiveness.
+      if (this._lastCheckTime !== undefined) {
+        const overshoot = now - this._lastCheckTime - this._cmdCheckInterval;
+        if (overshoot > 0) {
+          effectiveTimeout += overshoot;
+        }
+      }
+
+      if (now - cmd.queuedTime > effectiveTimeout) {
         this._shutdown("Command timeout");
       } else {
         this._startCmdTimeout();
       }
     }
+
+    this._lastCheckTime = now;
   }
 
   _startCmdTimeout(): void {
