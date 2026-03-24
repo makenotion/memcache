@@ -35,7 +35,7 @@ export class MemcacheNode {
     if (this.connections.length < (this.options.maxConnections ?? 0)) {
       return tracer.startActiveSpan("electrode_memcache.connect", async (span) => {
         try {
-          span.setAttribute("server", this.options.server);
+          span.setAttributes({ server: this.options.server, maxConnections: this.options.maxConnections, connections: this.connections.length });
           return await this._connect(this.options.server);
         } catch (err) {
           span.recordException(err as Error);
