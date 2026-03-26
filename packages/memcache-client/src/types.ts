@@ -43,6 +43,7 @@ export type PackedData = {
 export type MemcacheClientOptions = {
   server: ServerDefinition | SingleServerEntry | MultipleServerEntry;
   ignoreNotStored?: boolean;
+  ignoreNotFound?: boolean;
   lifetime?: number;
   noDelay?: boolean;
   cmdTimeout?: number;

@@ -32,9 +32,12 @@ type StoreCommandOptions = CommonCommandOption & { ignoreNotStored?: boolean } &
   compress?: boolean;
 }>;
 
+type DeleteCommandOptions = CommonCommandOption & { ignoreNotFound?: boolean };
+
 type RetrieveCommands = "get" | "gets" | "mg";
 type StoreCommands = "set" | "add" | "replace" | "append" | "prepend" | "cas";
-type Command = RetrieveCommands | StoreCommands;
+type DeleteCommands = "delete";
+type Command = RetrieveCommands | StoreCommands | DeleteCommands;
 
 // Exported for testing
 export type CasCommandOptions = CommonCommandOption &
@@ -334,9 +337,13 @@ export class MemcacheClient extends EventEmitter {
   // delete key, fire & forget with options.noreply
   delete(
     key: string,
-    options?: CommonCommandOption,
+    options?: DeleteCommandOptions,
     callback?: OperationCallback<Error, string[]>
   ): Promise<string[]> {
+    options = options || {};
+    if (options.ignoreNotFound === undefined) {
+      options.ignoreNotFound = this.options.ignoreNotFound;
+    }
     return this.cmd(`delete ${key}`, key, options, callback);
   }
 
@@ -651,7 +658,7 @@ export class MemcacheClient extends EventEmitter {
   _send(
     conn: MemcacheConnection,
     data: StoreParams | SocketCallback,
-    options: Partial<CasCommandOptions>
+    options: Partial<CasCommandOptions & DeleteCommandOptions>
   ): Promise<unknown> {
     try {
       // send data to connection
@@ -676,6 +683,9 @@ export class MemcacheClient extends EventEmitter {
             if (err) {
               if (options.ignoreNotStored === true && err.message === "NOT_STORED") {
                 return resolve("ignore NOT_STORED");
+              }
+              if (options.ignoreNotFound === true && err.message === "NOT_FOUND") {
+                return resolve("ignore NOT_FOUND");
               }
               return reject(err);
             }
