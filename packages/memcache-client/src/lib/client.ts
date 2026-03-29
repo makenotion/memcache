@@ -1,3 +1,4 @@
+/* eslint-disable max-params */
 import assert from "assert";
 import { Socket } from "net";
 
@@ -11,8 +12,6 @@ import RedundantServers from "./redundant-servers";
 import EventEmitter from "events";
 import {
   MemcacheClientOptions,
-  ResolveCallback,
-  RejectCallback,
   ErrorFirstCallback,
   CommandContext,
   SingleServerEntry,
@@ -34,7 +33,6 @@ type StoreCommandOptions = CommonCommandOption & { ignoreNotStored?: boolean } &
 
 type RetrieveCommands = "get" | "gets" | "mg";
 type StoreCommands = "set" | "add" | "replace" | "append" | "prepend" | "cas";
-type Command = RetrieveCommands | StoreCommands;
 
 // Exported for testing
 export type CasCommandOptions = CommonCommandOption &
@@ -103,9 +101,7 @@ export type MetaResult = {
 
 type SocketCallback = (socket?: Socket) => void;
 
-/* eslint-disable no-bitwise,no-magic-numbers,max-params,max-statements,no-var */
-/* eslint max-len:[2,120] */
-type OperationCallback<Error, Data> = (error?: Error | null, data?: Data) => void;
+type OperationCallback<Data> = (error?: Error | null, data?: Data) => void;
 export type RetrievalCommandResponse<ValueType> = {
   tokens: string[];
   casUniq?: number | string;
@@ -170,7 +166,6 @@ export class MemcacheClient extends EventEmitter {
   _logger: DefaultLogger;
   _servers: MultiServerManager;
   private _packer: ValuePacker;
-  private Promise: PromiseConstructor; // Promise definition seems complicated
 
   constructor(options: MemcacheClientOptions) {
     super();
@@ -192,7 +187,6 @@ export class MemcacheClient extends EventEmitter {
     } else {
       this._servers = new RedundantServers(this, options.server as unknown as SingleServerEntry);
     }
-    this.Promise = options.Promise || Promise;
   }
 
   shutdown(): void {
@@ -218,11 +212,9 @@ export class MemcacheClient extends EventEmitter {
   send<ValueType>(
     data: StoreParams | SocketCallback,
     key: string,
-    options?: CommonCommandOption,
+    options: CommonCommandOption = {},
     callback?: ErrorFirstCallback
   ): Promise<ValueType> {
-    options = options || {};
-
     return this._callbackSend(data, key, options, callback);
   }
 
@@ -230,10 +222,10 @@ export class MemcacheClient extends EventEmitter {
   xsend<ValueType>(
     data: StoreParams | SocketCallback,
     key: string,
-    options?: StoreCommandOptions
+    options: StoreCommandOptions = {}
   ): Promise<ValueType> {
     return this._servers.doCmd(
-      (c: MemcacheConnection) => this._send(c, data, options || {}),
+      (c: MemcacheConnection) => this._send(c, data, options),
       key
     ) as Promise<ValueType>;
   }
@@ -265,7 +257,7 @@ export class MemcacheClient extends EventEmitter {
     key: string,
     value: StoreParams,
     options?: StoreCommandOptions,
-    callback?: OperationCallback<Error, string[]>
+    callback?: OperationCallback<string[]>
   ): Promise<string[]> {
     options = options || {};
     if (options.ignoreNotStored === undefined) {
@@ -280,7 +272,7 @@ export class MemcacheClient extends EventEmitter {
     key: string,
     value: StoreParams,
     options?: StoreCommandOptions,
-    callback?: OperationCallback<Error, string[]>
+    callback?: OperationCallback<string[]>
   ): Promise<string[]> {
     return this.store("add", key, value, options, callback);
   }
@@ -291,7 +283,7 @@ export class MemcacheClient extends EventEmitter {
     key: string,
     value: StoreParams,
     options?: StoreCommandOptions,
-    callback?: OperationCallback<Error, string[]>
+    callback?: OperationCallback<string[]>
   ): Promise<string[]> {
     return this.store("replace", key, value, options, callback);
   }
@@ -301,7 +293,7 @@ export class MemcacheClient extends EventEmitter {
     key: string,
     value: StoreParams,
     options?: StoreCommandOptions,
-    callback?: OperationCallback<Error, string[]>
+    callback?: OperationCallback<string[]>
   ): Promise<string[]> {
     return this.store("append", key, value, options, callback);
   }
@@ -311,7 +303,7 @@ export class MemcacheClient extends EventEmitter {
     key: string,
     value: StoreParams,
     options?: StoreCommandOptions,
-    callback?: OperationCallback<Error, string[]>
+    callback?: OperationCallback<string[]>
   ): Promise<string[]> {
     return this.store("prepend", key, value, options, callback);
   }
@@ -325,7 +317,7 @@ export class MemcacheClient extends EventEmitter {
     key: string,
     value: StoreParams,
     options: CasCommandOptions,
-    callback?: OperationCallback<Error, string[]>
+    callback?: OperationCallback<string[]>
   ): Promise<string[]> {
     assert(options?.casUniq, "Must provide options.casUniq for cas store command");
     return this.store("cas", key, value, options, callback);
@@ -335,7 +327,7 @@ export class MemcacheClient extends EventEmitter {
   delete(
     key: string,
     options?: CommonCommandOption,
-    callback?: OperationCallback<Error, string[]>
+    callback?: OperationCallback<string[]>
   ): Promise<string[]> {
     return this.cmd(`delete ${key}`, key, options, callback);
   }
@@ -345,7 +337,7 @@ export class MemcacheClient extends EventEmitter {
     key: string,
     value: number,
     options?: StoreCommandOptions,
-    callback?: OperationCallback<Error, string>
+    callback?: OperationCallback<string>
   ): Promise<string> {
     return this.cmd(`incr ${key} ${value}`, key, options, callback);
   }
@@ -355,7 +347,7 @@ export class MemcacheClient extends EventEmitter {
     key: string,
     value: number,
     options?: StoreCommandOptions,
-    callback?: OperationCallback<Error, string>
+    callback?: OperationCallback<string>
   ): Promise<string> {
     return this.cmd(`decr ${key} ${value}`, key, options, callback);
   }
@@ -365,13 +357,13 @@ export class MemcacheClient extends EventEmitter {
     key: string,
     exptime: string | number,
     options?: CommonCommandOption,
-    callback?: OperationCallback<Error, string[]>
+    callback?: OperationCallback<string[]>
   ): Promise<string[]> {
     return this.cmd(`touch ${key} ${exptime}`, key, options, callback);
   }
 
   // get version of server
-  version(callback?: OperationCallback<Error, string[]>): Promise<string[]> {
+  version(callback?: OperationCallback<string[]>): Promise<string[]> {
     return this.cmd(`version`, "", {}, callback);
   }
 
@@ -379,7 +371,7 @@ export class MemcacheClient extends EventEmitter {
   flush(
     exptime?: number,
     options?: CommonCommandOption,
-    callback?: OperationCallback<Error, string[]>
+    callback?: OperationCallback<string[]>
   ): Promise<string[]> {
     const cmd = exptime !== undefined ? `flush_all ${exptime}` : "flush_all";
     return this.cmd(cmd, "", options, callback) as Promise<string[]>;
@@ -391,7 +383,6 @@ export class MemcacheClient extends EventEmitter {
       afterPing?: (serverKey: string, error?: Error) => void;
     },
     callback?: OperationCallback<
-    Error,
     Record<string, {version?: string[] | null, error?: Error}>
     >): Promise<{
     values: Record<string, {version?: string[] | null, error?: Error}>
@@ -400,17 +391,16 @@ export class MemcacheClient extends EventEmitter {
       trackingCallbacks?.beforePing?.(server.server);
       try {
         const response = await this.cmd(`version`, server.server, {}, callback) as string[];
-        trackingCallbacks?.afterPing?.(server.server, undefined);
+        trackingCallbacks?.afterPing?.(server.server);
         return { server: server.server, value: { version: response } };
       } catch (error) {
         trackingCallbacks?.afterPing?.(server.server, error as Error);
         return { server: server.server, value: { error: error as Error } };
       }
     }));
-    const values = versionObjects.reduce((accumulator, versionObject) => {
-      accumulator[versionObject.server] = versionObject.value;
-      return accumulator;
-    }, {} as Record<string, {version?: string[] | null, error?: Error}>);
+    const values = Object.fromEntries(
+      versionObjects.map(({ server, value }) => [server, value])
+    );
     return { values };
   }
 
@@ -419,11 +409,9 @@ export class MemcacheClient extends EventEmitter {
     cmd: StoreCommands,
     key: string,
     value: StoreParams,
-    options?: Partial<CasCommandOptions>,
-    callback?: OperationCallback<Error, string[]>
+    options: Partial<CasCommandOptions> = {},
+    callback?: OperationCallback<string[]>
   ): Promise<string[]> {
-    options = options || {};
-
     const lifetime =
       options.lifetime !== undefined ? options.lifetime : this.options.lifetime || 60;
     const casUniq = options.casUniq ? ` ${options.casUniq}` : "";
@@ -433,7 +421,7 @@ export class MemcacheClient extends EventEmitter {
     // store commands
     // <command name> <key> <flags> <exptime> <bytes> [noreply]\r\n
     //
-    const _data: SocketCallback = (socket?: Socket) => {
+    const sendData: SocketCallback = (socket?: Socket) => {
       const packed = this._packer.pack(value, options.compress === true);
       const bytes = Buffer.byteLength(packed.data);
       socket?.write(
@@ -445,13 +433,13 @@ export class MemcacheClient extends EventEmitter {
       );
     };
 
-    return this._callbackSend(_data, key, options, callback) as Promise<string[]>;
+    return this._callbackSend(sendData, key, options, callback) as Promise<string[]>;
   }
 
   get<ValueType>(
     key: string | string[],
     options?: StoreCommandOptions,
-    callback?: OperationCallback<Error, MultiRetrieval<ValueType>>
+    callback?: OperationCallback<MultiRetrieval<ValueType>>
   ): Promise<MultiRetrieval<ValueType>> {
     return this.retrieve("get", key, options, callback);
   }
@@ -459,42 +447,37 @@ export class MemcacheClient extends EventEmitter {
   mg<ValueType>(
     key: string | string[],
     options?: MetaGetOptions,
-    callback?: OperationCallback<Error, MultiMetaRetrieval<ValueType>>
+    callback?: OperationCallback<MultiMetaRetrieval<ValueType>>
   ): Promise<MultiMetaRetrieval<ValueType>> {
     // always request value and flags
     // key is only requested when there is an array to identify the responses by key
-    let metaFlags = Array.isArray(key) ? "v k f" : "v f";
-    if (options?.keyAsBase64) {
-      metaFlags += " b";
-    }
-    if (options?.includeCasToken) {
-      metaFlags += " c";
-    }
-    if (options?.includeHasBeenHit) {
-      metaFlags += " h";
-    }
-    if (options?.includeLastAccessed) {
-      metaFlags += " l";
-    }
-    if (options?.includeRemainingTtl) {
-      metaFlags += " t";
-    }
-    if (options?.dontBumpLru) {
-      metaFlags += " n";
+    const metaFlagParts = [Array.isArray(key) ? "v k f" : "v f"];
+
+    const flagMap: Array<[keyof MetaGetOptions, string]> = [
+      ["keyAsBase64", "b"],
+      ["includeCasToken", "c"],
+      ["includeHasBeenHit", "h"],
+      ["includeLastAccessed", "l"],
+      ["includeRemainingTtl", "t"],
+      ["dontBumpLru", "n"],
+      ["noreply", "q"],
+    ];
+    for (const [optionKey, flag] of flagMap) {
+      if (options?.[optionKey]) {
+        metaFlagParts.push(flag);
+      }
     }
     if (options?.vivifyOnMiss) {
-      metaFlags += ` N${options.vivifyOnMiss}`;
+      metaFlagParts.push(`N${options.vivifyOnMiss}`);
     }
-    if (options?.noreply) {
-      metaFlags += " q";
-    }
-    return this.retrieve("mg", key, options, callback, metaFlags);
+
+    return this.retrieve("mg", key, options, callback, metaFlagParts.join(" "));
   }
 
   gets<ValueType>(
     key: string | string[],
     options?: StoreCommandOptions,
-    callback?: OperationCallback<Error, MultiCasRetrieval<ValueType>>
+    callback?: OperationCallback<MultiCasRetrieval<ValueType>>
   ): Promise<MultiCasRetrieval<ValueType>> {
     return this.retrieve("gets", key, options, callback);
   }
@@ -525,11 +508,10 @@ export class MemcacheClient extends EventEmitter {
   retrieve<T>(
     cmd: RetrieveCommands,
     key: string[] | string,
-    options?: StoreCommandOptions,
+    options: StoreCommandOptions = {},
     callback?: ErrorFirstCallback,
     metaFlags?: string
   ): Promise<T> {
-    options = options || {};
     return nodeify(this.xretrieve(cmd, key, options, metaFlags), callback) as Promise<T>;
   }
 
@@ -553,15 +535,15 @@ export class MemcacheClient extends EventEmitter {
       }
       return Promise.all(
         Array.from(serverKeys.values()).map((keys) =>
-          this._xretrieverByServer(cmd, keys, options, metaFlags)
+          this._xretrieveByServer(cmd, keys, options, metaFlags)
         )
       );
     }
-    return this._xretrieverByServer(cmd, key, options, metaFlags);
+    return this._xretrieveByServer(cmd, key, options, metaFlags);
   }
 
   // retrieve one or more keys from a single server
-  _xretrieverByServer(
+  _xretrieveByServer(
     cmd: RetrieveCommands,
     key: string | string[],
     options?: StoreCommandOptions,
@@ -587,8 +569,7 @@ export class MemcacheClient extends EventEmitter {
         );
     }
     return Array.isArray(key)
-      ? // NOTE: can't do this for meta commands, instead do "mg foo v\r\nmg bar v\r\nmg baz v\r\n"
-      this.xsend(`${cmd} ${key.join(" ")}\r\n`, key[0], options)
+      ? this.xsend(`${cmd} ${key.join(" ")}\r\n`, key[0], options)
       : this.xsend(`${cmd} ${key}\r\n`, key, options).then(
         (r: unknown) => (r as Record<string, unknown>)[key]
       );
@@ -606,7 +587,7 @@ export class MemcacheClient extends EventEmitter {
     // If not using consistently hashed servers, just do a single request
     if (!(serverManager instanceof ConsistentlyHashedServers)) {
       try {
-        const result = await this._xretrieverByServer(cmd, keys, options);
+        const result = await this._xretrieveByServer(cmd, keys, options);
         return { result: result as MultiCasRetrievalResponse, errors: [] };
       } catch (error) {
         return {
@@ -630,7 +611,7 @@ export class MemcacheClient extends EventEmitter {
     const results = await Promise.all(
       Array.from(serverKeysMap.entries()).map(async ([serverKey, serverKeys]) => {
         try {
-          return await this._xretrieverByServer(cmd, serverKeys, options);
+          return await this._xretrieveByServer(cmd, serverKeys, options);
         } catch (error) {
           errors.push({
             error: error as Error,
@@ -663,16 +644,16 @@ export class MemcacheClient extends EventEmitter {
 
       // if no reply wanted then just return
       if (options.noreply) {
-        return this.Promise.resolve();
+        return Promise.resolve();
       }
 
       // queue up context to listen for reply
-      return new this.Promise((resolve: ResolveCallback, reject: RejectCallback) => {
-        const context = {
+      return new Promise((resolve, reject) => {
+        const context: CommandContext = {
           error: null,
           results: {},
           expectedResponses: options.expectedResponses || 1,
-          callback: (err: Error, result: unknown) => {
+          callback: (err, result) => {
             if (err) {
               if (options.ignoreNotStored === true && err.message === "NOT_STORED") {
                 return resolve("ignore NOT_STORED");
@@ -682,17 +663,17 @@ export class MemcacheClient extends EventEmitter {
             if (result) {
               return resolve(result);
             } else if (context.error) {
-              return reject(context.error as unknown as Error);
+              return reject(context.error);
             } else {
               return resolve(context.results);
             }
           },
         };
 
-        conn.queueCommand(context as CommandContext);
+        conn.queueCommand(context);
       });
     } catch (err) {
-      return this.Promise.reject(err);
+      return Promise.reject(err);
     }
   }
 
